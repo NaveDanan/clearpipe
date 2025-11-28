@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:no-db": "node scripts/check-no-db-commit.js",
+    "setup-git-hooks": "node scripts/setup-git-hooks.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
