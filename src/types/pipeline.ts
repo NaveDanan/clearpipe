@@ -32,6 +32,8 @@ export interface DatasetConfig {
   source: 'local' | 's3' | 'gcs' | 'azure-blob' | 'minio' | 'clearml' | 'url';
   path: string;
   format: string | string[];
+  // Reference to a saved connection from settings
+  connectionId?: string;
   // S3/MinIO specific
   bucket?: string;
   region?: string;

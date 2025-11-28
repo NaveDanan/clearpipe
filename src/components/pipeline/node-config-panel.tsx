@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { X, Settings, Database, GitBranch, Wand2, Cpu, BarChart3, FileText, ChevronDown } from 'lucide-react';
+import { useCallback, useState, useEffect } from 'react';
+import { X, Settings, Database, GitBranch, Wand2, Cpu, BarChart3, FileText, ChevronDown, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,12 +13,15 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectSeparator,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { usePipelineStore } from '@/stores/pipeline-store';
+import { useSettingsStore } from '@/stores/settings-store';
+import { ControlledSettingsDialog } from '@/components/ui/settings-dialog';
 import { dataFormatOptions } from '@/config/node-definitions';
 import type { DataFormatOption } from '@/config/node-definitions';
 import type {
@@ -354,33 +357,161 @@ interface DatasetConfigPanelProps {
   onUpdate: (updates: Partial<DatasetConfig>) => void;
 }
 
+// Provider display info for connections
+const providerInfo: Record<string, { label: string; icon: string }> = {
+  aws: { label: 'AWS S3', icon: '🟠' },
+  gcp: { label: 'Google Cloud Storage', icon: '🔵' },
+  azure: { label: 'Azure Blob', icon: '🔷' },
+  minio: { label: 'MinIO', icon: '🟣' },
+  clearml: { label: 'ClearML', icon: '🟢' },
+};
+
 function DatasetConfigPanel({ config, onUpdate }: DatasetConfigPanelProps) {
+  const { connections, fetchConnections } = useSettingsStore();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  
+  // Fetch connections on mount
+  useEffect(() => {
+    fetchConnections();
+  }, [fetchConnections]);
+  
+  // Get configured connections (those marked as configured)
+  const configuredConnections = connections.filter(conn => conn.isConfigured);
+  
+  // Handle source selection
+  const handleSourceChange = (value: string) => {
+    if (value === '__add_source__') {
+      setSettingsOpen(true);
+      return;
+    }
+    
+    // Check if it's a connection ID (starts with 'conn:')
+    if (value.startsWith('conn:')) {
+      const connectionId = value.replace('conn:', '');
+      const connection = connections.find(c => c.id === connectionId);
+      if (connection) {
+        // Map connection provider to source type
+        const sourceMap: Record<string, DatasetConfig['source']> = {
+          aws: 's3',
+          gcp: 'gcs',
+          azure: 'azure-blob',
+          minio: 'minio',
+          clearml: 'clearml',
+        };
+        const source = sourceMap[connection.provider] || 'local';
+        onUpdate({ 
+          source, 
+          connectionId,
+          // Pre-fill some fields from the connection
+          ...(connection.provider === 'aws' && { 
+            region: (connection as any).region,
+            bucket: (connection as any).bucket 
+          }),
+          ...(connection.provider === 'gcp' && { 
+            bucket: (connection as any).bucket 
+          }),
+          ...(connection.provider === 'azure' && { 
+            container: (connection as any).container 
+          }),
+          ...(connection.provider === 'minio' && { 
+            endpoint: (connection as any).endpoint,
+            bucket: (connection as any).bucket 
+          }),
+        });
+      }
+    } else {
+      onUpdate({ source: value as DatasetConfig['source'], connectionId: undefined });
+    }
+  };
+  
+  // Determine current value for the select
+  const getCurrentValue = () => {
+    if (config.connectionId) {
+      return `conn:${config.connectionId}`;
+    }
+    return config.source;
+  };
+  
+  // Get display name for current selection
+  const getSourceDisplayName = () => {
+    if (config.connectionId) {
+      const connection = connections.find(c => c.id === config.connectionId);
+      if (connection) {
+        return `${providerInfo[connection.provider]?.icon || ''} ${connection.name}`;
+      }
+    }
+    switch (config.source) {
+      case 'local': return 'Local File';
+      case 'url': return 'URL';
+      case 's3': return 'Amazon S3';
+      case 'gcs': return 'Google Cloud Storage';
+      case 'azure-blob': return 'Azure Blob Storage';
+      case 'minio': return 'MinIO';
+      case 'clearml': return 'ClearML';
+      default: return 'Select source';
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <Label>Data Source</Label>
-        <Select value={config.source} onValueChange={(value) => onUpdate({ source: value as DatasetConfig['source'] })}>
+        <Select value={getCurrentValue()} onValueChange={handleSourceChange}>
           <SelectTrigger>
-            <SelectValue placeholder="Select source" />
+            <SelectValue placeholder="Select source">
+              {getSourceDisplayName()}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="local">Local File</SelectItem>
-            <SelectItem value="cloud">Cloud Storage</SelectItem>
-            <SelectItem value="s3">Amazon S3</SelectItem>
-            <SelectItem value="gcs">Google Cloud Storage</SelectItem>
-            <SelectItem value="azure-blob">Azure Blob Storage</SelectItem>
             <SelectItem value="url">URL</SelectItem>
+            
+            {configuredConnections.length > 0 && (
+              <>
+                <SelectSeparator />
+                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                  Configured Connections
+                </div>
+                {configuredConnections.map((conn) => (
+                  <SelectItem key={conn.id} value={`conn:${conn.id}`}>
+                    <span className="flex items-center gap-2">
+                      <span>{providerInfo[conn.provider]?.icon}</span>
+                      <span>{conn.name}</span>
+                      <Badge variant="secondary" className="ml-auto text-[10px] px-1">
+                        {providerInfo[conn.provider]?.label}
+                      </Badge>
+                    </span>
+                  </SelectItem>
+                ))}
+              </>
+            )}
+            
+            <SelectSeparator />
+            <SelectItem value="__add_source__">
+              <span className="flex items-center gap-2 text-primary">
+                <Plus className="h-4 w-4" />
+                <span>Add source...</span>
+              </span>
+            </SelectItem>
           </SelectContent>
         </Select>
       </div>
       
       <div className="space-y-2">
-        <Label htmlFor="path">Path / URL</Label>
+        <Label htmlFor="path">
+          {config.source === 'url' ? 'URL' : 'Path'}
+        </Label>
         <Input
           id="path"
           value={config.path}
           onChange={(e) => onUpdate({ path: e.target.value })}
-          placeholder="e.g., /data/train.csv or s3://bucket/data"
+          placeholder={
+            config.source === 'url' 
+              ? 'e.g., https://example.com/data.csv'
+              : config.source === 'local'
+                ? 'e.g., /data/train.csv'
+                : 'e.g., bucket/path/to/data'
+          }
         />
       </div>
       
@@ -392,14 +523,45 @@ function DatasetConfigPanel({ config, onUpdate }: DatasetConfigPanelProps) {
         />
       </div>
       
-      {(config.source === 's3' || config.source === 'gcs' || config.source === 'azure-blob') && (
+      {/* Show additional fields for cloud sources that are NOT using a saved connection */}
+      {!(config.connectionId) && (config.source === 's3' || config.source === 'gcs' || config.source === 'azure-blob' || config.source === 'minio') && (
         <>
           <Separator />
           <div className="space-y-4">
-            <Label className="text-sm font-semibold">Cloud Credentials</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">Cloud Credentials</Label>
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="h-auto p-0 text-xs"
+                onClick={() => setSettingsOpen(true)}
+              >
+                Or use a saved connection
+              </Button>
+            </div>
             
-            {config.source === 's3' && (
+            {(config.source === 's3' || config.source === 'minio') && (
               <>
+                {config.source === 'minio' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="endpoint">Endpoint</Label>
+                    <Input
+                      id="endpoint"
+                      value={config.endpoint || ''}
+                      onChange={(e) => onUpdate({ endpoint: e.target.value })}
+                      placeholder="e.g., http://localhost:9000"
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="bucket">Bucket</Label>
+                  <Input
+                    id="bucket"
+                    value={config.bucket || ''}
+                    onChange={(e) => onUpdate({ bucket: e.target.value })}
+                    placeholder="e.g., my-bucket"
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="accessKey">Access Key ID</Label>
                   <Input
@@ -425,22 +587,100 @@ function DatasetConfigPanel({ config, onUpdate }: DatasetConfigPanelProps) {
               </>
             )}
             
+            {config.source === 'gcs' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="bucket">Bucket</Label>
+                  <Input
+                    id="bucket"
+                    value={config.bucket || ''}
+                    onChange={(e) => onUpdate({ bucket: e.target.value })}
+                    placeholder="e.g., my-gcs-bucket"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="projectId">Project ID</Label>
+                  <Input
+                    id="projectId"
+                    value={config.credentials?.projectId || ''}
+                    onChange={(e) => onUpdate({ 
+                      credentials: { ...config.credentials, projectId: e.target.value }
+                    })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="serviceAccountKey">Service Account Key (JSON)</Label>
+                  <Textarea
+                    id="serviceAccountKey"
+                    value={config.credentials?.serviceAccountKey || ''}
+                    onChange={(e) => onUpdate({ 
+                      credentials: { ...config.credentials, serviceAccountKey: e.target.value }
+                    })}
+                    className="font-mono text-xs"
+                    rows={4}
+                    placeholder="Paste your service account key JSON here"
+                  />
+                </div>
+              </>
+            )}
+            
             {config.source === 'azure-blob' && (
-              <div className="space-y-2">
-                <Label htmlFor="connectionString">Connection String</Label>
-                <Input
-                  id="connectionString"
-                  type="password"
-                  value={config.credentials?.connectionString || ''}
-                  onChange={(e) => onUpdate({ 
-                    credentials: { ...config.credentials, connectionString: e.target.value }
-                  })}
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="container">Container</Label>
+                  <Input
+                    id="container"
+                    value={config.container || ''}
+                    onChange={(e) => onUpdate({ container: e.target.value })}
+                    placeholder="e.g., my-container"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="connectionString">Connection String</Label>
+                  <Input
+                    id="connectionString"
+                    type="password"
+                    value={config.credentials?.connectionString || ''}
+                    onChange={(e) => onUpdate({ 
+                      credentials: { ...config.credentials, connectionString: e.target.value }
+                    })}
+                  />
+                </div>
+              </>
             )}
           </div>
         </>
       )}
+      
+      {/* Show connection info when using a saved connection */}
+      {config.connectionId && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">Using Saved Connection</Label>
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="h-auto p-0 text-xs"
+                onClick={() => setSettingsOpen(true)}
+              >
+                Manage connections
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Credentials are managed in Settings → Connections
+            </p>
+          </div>
+        </>
+      )}
+      
+      {/* Settings Dialog */}
+      <ControlledSettingsDialog 
+        open={settingsOpen} 
+        onOpenChange={setSettingsOpen} 
+        defaultTab="connections" 
+      />
     </div>
   );
 }

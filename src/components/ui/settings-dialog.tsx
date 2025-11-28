@@ -326,12 +326,15 @@ function ConnectionForm({
   }) => (
     <div className="space-y-2">
       <Label>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
+      <Select 
+        value={value || "__none__"} 
+        onValueChange={(v) => onChange(v === "__none__" ? "" : v)}
+      >
         <SelectTrigger>
           <SelectValue placeholder="Select a secret" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="">None</SelectItem>
+          <SelectItem value="__none__">None</SelectItem>
           {secrets.map((secret) => (
             <SelectItem key={secret.id} value={secret.id}>
               <span className="flex items-center gap-2">
@@ -819,6 +822,66 @@ function ConnectionsSection() {
   );
 }
 
+// Settings dialog content component (used internally)
+function SettingsDialogContent({ defaultTab = 'appearance' }: { defaultTab?: string }) {
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Settings</DialogTitle>
+        <DialogDescription>
+          Configure your application preferences, connections, and secrets.
+        </DialogDescription>
+      </DialogHeader>
+      
+      <Tabs defaultValue={defaultTab} className="mt-4">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="appearance" className="flex items-center gap-1">
+            <Settings className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Appearance</span>
+          </TabsTrigger>
+          <TabsTrigger value="connections" className="flex items-center gap-1">
+            <Cloud className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Connections</span>
+          </TabsTrigger>
+          <TabsTrigger value="secrets" className="flex items-center gap-1">
+            <Key className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Secrets</span>
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="appearance" className="mt-4 space-y-6">
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label className="text-base font-semibold">Appearance</Label>
+              <p className="text-sm text-muted-foreground">
+                Choose between light and dark mode for the interface.
+              </p>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Theme</Label>
+                <p className="text-xs text-muted-foreground">
+                  Toggle between light and dark mode
+                </p>
+              </div>
+              <CinematicThemeSwitcher size="sm" />
+            </div>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="connections" className="mt-4">
+          <ConnectionsSection />
+        </TabsContent>
+        
+        <TabsContent value="secrets" className="mt-4">
+          <SecretsSection />
+        </TabsContent>
+      </Tabs>
+    </>
+  );
+}
+
+// Default SettingsDialog with trigger button
 export function SettingsDialog() {
   return (
     <Dialog>
@@ -828,57 +891,28 @@ export function SettingsDialog() {
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[550px] max-h-[85vh]">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Configure your application preferences, connections, and secrets.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <Tabs defaultValue="appearance" className="mt-4">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="appearance" className="flex items-center gap-1">
-              <Settings className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Appearance</span>
-            </TabsTrigger>
-            <TabsTrigger value="connections" className="flex items-center gap-1">
-              <Cloud className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Connections</span>
-            </TabsTrigger>
-            <TabsTrigger value="secrets" className="flex items-center gap-1">
-              <Key className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Secrets</span>
-            </TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="appearance" className="mt-4 space-y-6">
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <Label className="text-base font-semibold">Appearance</Label>
-                <p className="text-sm text-muted-foreground">
-                  Choose between light and dark mode for the interface.
-                </p>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Theme</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Toggle between light and dark mode
-                  </p>
-                </div>
-                <CinematicThemeSwitcher size="sm" />
-              </div>
-            </div>
-          </TabsContent>
-          
-          <TabsContent value="connections" className="mt-4">
-            <ConnectionsSection />
-          </TabsContent>
-          
-          <TabsContent value="secrets" className="mt-4">
-            <SecretsSection />
-          </TabsContent>
-        </Tabs>
+        <SettingsDialogContent />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Controlled SettingsDialog that can be opened programmatically
+interface ControlledSettingsDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  defaultTab?: 'appearance' | 'connections' | 'secrets';
+}
+
+export function ControlledSettingsDialog({ 
+  open, 
+  onOpenChange, 
+  defaultTab = 'appearance' 
+}: ControlledSettingsDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[550px] max-h-[85vh]">
+        <SettingsDialogContent defaultTab={defaultTab} />
       </DialogContent>
     </Dialog>
   );

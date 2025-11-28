@@ -1,14 +1,32 @@
 {
   "secrets": [
     {
-      "id": "q8zmgw0cz26y1hgdvnk0x",
+      "id": "i6boogd8rwie5vf6cqxfd",
+      "name": "secret-key",
+      "provider": "clearml",
+      "value": "XAQEwNw8TqNYzoyqh6ZiO69y0M5dnO0jFBtHVX4orma0G7mk1NJVUNGGdcDXeyIGqv8",
+      "created_at": "2025-11-28T12:47:48.280Z",
+      "updated_at": "2025-11-28T12:47:48.280Z"
+    },
+    {
+      "id": "q0qaf2lol3sff5uxoq2r9v",
       "name": "access-key",
       "provider": "clearml",
-      "value": "IL4DCQBTW29JO3KM9PIUUDTQUWKK4J",
-      "created_at": "2025-11-28T12:44:06.494Z",
-      "updated_at": "2025-11-28T12:44:06.494Z"
+      "value": "2BU7O9SHGCQP7Q5C3953NYX7GNNGA4",
+      "created_at": "2025-11-28T12:48:04.473Z",
+      "updated_at": "2025-11-28T12:48:04.473Z"
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "id": "a6wamjul096u1wj1bxvb6",
+      "name": "ClearML-test",
+      "provider": "clearml",
+      "config": "{\"apiHost\":\"https://api.clear.ml\",\"webHost\":\"https://app.clear.ml\",\"filesHost\":\"https://files.clear.ml\",\"accessKeySecretId\":\"q0qaf2lol3sff5uxoq2r9v\",\"secretKeySecretId\":\"i6boogd8rwie5vf6cqxfd\"}",
+      "is_configured": 1,
+      "created_at": "2025-11-28T12:48:43.884Z",
+      "updated_at": "2025-11-28T12:48:43.884Z"
+    }
+  ],
   "pipelines": []
 }
