@@ -35,13 +35,81 @@ import {
   Loader2,
 } from 'lucide-react';
 import { usePipelineStore } from '@/stores/pipeline-store';
-import type { PipelineNodeData } from '@/types/pipeline';
-import { checkDatasetConnection } from '@/components/nodes';
+import type { PipelineNodeData, PipelineNode, PipelineEdge, DatasetNodeData, PreprocessingNodeData } from '@/types/pipeline';
+import { checkDatasetConnection, executePreprocessing } from '@/components/nodes';
 import { SettingsDialog } from '@/components/ui/settings-dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+interface NodeExecutionResult {
+  nodeId: string;
+  nodeLabel: string;
+  nodeType: string;
+  success: boolean;
+  message?: string;
+  outputPath?: string;
+  fileCount?: number;
+  error?: string;
+}
+
+// Helper function to get execution order based on graph topology
+function getExecutionOrder(nodes: PipelineNode[], edges: PipelineEdge[]): PipelineNode[] {
+  // Build adjacency list and in-degree count
+  const inDegree = new Map<string, number>();
+  const adjacencyList = new Map<string, string[]>();
+  
+  nodes.forEach(node => {
+    inDegree.set(node.id, 0);
+    adjacencyList.set(node.id, []);
+  });
+  
+  edges.forEach(edge => {
+    const targets = adjacencyList.get(edge.source) || [];
+    targets.push(edge.target);
+    adjacencyList.set(edge.source, targets);
+    inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1);
+  });
+  
+  // Kahn's algorithm for topological sort
+  const queue: string[] = [];
+  const result: PipelineNode[] = [];
+  
+  inDegree.forEach((degree, nodeId) => {
+    if (degree === 0) {
+      queue.push(nodeId);
+    }
+  });
+  
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const currentNode = nodes.find(n => n.id === currentId);
+    if (currentNode) {
+      result.push(currentNode);
+    }
+    
+    const neighbors = adjacencyList.get(currentId) || [];
+    for (const neighbor of neighbors) {
+      const newDegree = (inDegree.get(neighbor) || 0) - 1;
+      inDegree.set(neighbor, newDegree);
+      if (newDegree === 0) {
+        queue.push(neighbor);
+      }
+    }
+  }
+  
+  return result;
+}
+
+// Helper function to get the source node for a given node
+function getSourceNode(nodeId: string, edges: PipelineEdge[], nodes: PipelineNode[]): PipelineNode | null {
+  const incomingEdge = edges.find(e => e.target === nodeId);
+  if (!incomingEdge) return null;
+  return nodes.find(n => n.id === incomingEdge.source) || null;
+}
 
 export function PipelineToolbar() {
   const {
     nodes,
+    edges,
     currentPipeline,
     savedPipelines,
     isDirty,
@@ -58,12 +126,15 @@ export function PipelineToolbar() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [loadDialogOpen, setLoadDialogOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [runResults, setRunResults] = useState<Map<string, { success: boolean; fileCount?: number; error?: string }>>(new Map());
+  const [runResults, setRunResults] = useState<NodeExecutionResult[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [pipelineName, setPipelineName] = useState(currentPipeline?.name || '');
   const [pipelineDescription, setPipelineDescription] = useState(
     currentPipeline?.description || ''
   );
+  
+  // Store for passing data between nodes during execution
+  const [nodeOutputs, setNodeOutputs] = useState<Map<string, { path: string; fileCount?: number }>>(new Map());
 
   const handleSave = () => {
     if (pipelineName.trim()) {
@@ -104,39 +175,150 @@ export function PipelineToolbar() {
 
   const handleRun = async () => {
     setIsRunning(true);
-    const results = new Map<string, { success: boolean; fileCount?: number; error?: string }>();
+    const results: NodeExecutionResult[] = [];
+    const outputs = new Map<string, { path: string; fileCount?: number }>();
 
-    // Find and check all dataset nodes
-    const datasetNodes = nodes.filter((node) => node.data.type === 'dataset');
-
-    if (datasetNodes.length === 0) {
-      alert('No dataset nodes found in the pipeline. Please add at least one dataset.');
+    if (nodes.length === 0) {
+      alert('No nodes in the pipeline. Please add at least one node.');
       setIsRunning(false);
       return;
     }
 
-    // Check each dataset node
-    for (const node of datasetNodes) {
-      const nodeData = node.data as PipelineNodeData;
-      if (nodeData.type === 'dataset') {
-        try {
-          updateNodeStatus(node.id, 'running', 'Checking connection...');
-          const result = await checkDatasetConnection(nodeData.config);
-          results.set(node.id, result);
+    // Get the execution order based on graph topology
+    const executionOrder = getExecutionOrder(nodes, edges);
 
-          if (result.success) {
-            updateNodeStatus(node.id, 'completed', `Found ${result.fileCount} files`);
-          } else {
-            updateNodeStatus(node.id, 'error', result.error || 'Connection failed');
+    // Execute nodes in order
+    for (const node of executionOrder) {
+      const nodeData = node.data as PipelineNodeData;
+      const nodeType = nodeData.type;
+
+      try {
+        updateNodeStatus(node.id, 'running', 'Executing...');
+
+        let result: NodeExecutionResult;
+
+        switch (nodeType) {
+          case 'dataset': {
+            const datasetData = nodeData as DatasetNodeData;
+            const checkResult = await checkDatasetConnection(datasetData.config);
+            
+            result = {
+              nodeId: node.id,
+              nodeLabel: nodeData.label,
+              nodeType: nodeType,
+              success: checkResult.success,
+              fileCount: checkResult.fileCount,
+              error: checkResult.error,
+              message: checkResult.success 
+                ? `Found ${checkResult.fileCount} files` 
+                : checkResult.error,
+              outputPath: datasetData.config.path,
+            };
+
+            if (checkResult.success) {
+              outputs.set(node.id, { 
+                path: datasetData.config.path, 
+                fileCount: checkResult.fileCount 
+              });
+              updateNodeStatus(node.id, 'completed', `Found ${checkResult.fileCount} files`);
+            } else {
+              updateNodeStatus(node.id, 'error', checkResult.error || 'Connection failed');
+            }
+            break;
           }
-        } catch (error) {
-          const errorMsg = (error as Error).message;
-          results.set(node.id, { success: false, fileCount: 0, error: errorMsg });
-          updateNodeStatus(node.id, 'error', errorMsg);
+
+          case 'preprocessing': {
+            const preprocessingData = nodeData as PreprocessingNodeData;
+            
+            // Get input path from the source node
+            const sourceNode = getSourceNode(node.id, edges, nodes);
+            let inputPath = '';
+            
+            if (sourceNode) {
+              const sourceOutput = outputs.get(sourceNode.id);
+              if (sourceOutput) {
+                inputPath = sourceOutput.path;
+              }
+            }
+
+            if (!inputPath) {
+              result = {
+                nodeId: node.id,
+                nodeLabel: nodeData.label,
+                nodeType: nodeType,
+                success: false,
+                error: 'No input data path available. Please connect a Dataset node.',
+                message: 'No input data path available',
+              };
+              updateNodeStatus(node.id, 'error', 'No input data path');
+              break;
+            }
+
+            const preprocessResult = await executePreprocessing(preprocessingData.config, inputPath);
+            
+            result = {
+              nodeId: node.id,
+              nodeLabel: nodeData.label,
+              nodeType: nodeType,
+              success: preprocessResult.success,
+              message: preprocessResult.message,
+              outputPath: preprocessResult.outputPath,
+              error: preprocessResult.success ? undefined : preprocessResult.message,
+            };
+
+            if (preprocessResult.success) {
+              outputs.set(node.id, { path: preprocessResult.outputPath || inputPath });
+              updateNodeStatus(node.id, 'completed', preprocessResult.message);
+            } else {
+              updateNodeStatus(node.id, 'error', preprocessResult.message);
+            }
+            break;
+          }
+
+          default: {
+            // For other node types, just pass through the input
+            const sourceNode = getSourceNode(node.id, edges, nodes);
+            if (sourceNode) {
+              const sourceOutput = outputs.get(sourceNode.id);
+              if (sourceOutput) {
+                outputs.set(node.id, sourceOutput);
+              }
+            }
+            
+            result = {
+              nodeId: node.id,
+              nodeLabel: nodeData.label,
+              nodeType: nodeType,
+              success: true,
+              message: 'Node type not yet implemented for execution',
+            };
+            updateNodeStatus(node.id, 'completed', 'Skipped (not implemented)');
+            break;
+          }
         }
+
+        results.push(result);
+
+        // Stop execution if a node fails
+        if (!result.success) {
+          break;
+        }
+      } catch (error) {
+        const errorMsg = (error as Error).message;
+        results.push({
+          nodeId: node.id,
+          nodeLabel: nodeData.label,
+          nodeType: nodeType,
+          success: false,
+          error: errorMsg,
+          message: errorMsg,
+        });
+        updateNodeStatus(node.id, 'error', errorMsg);
+        break;
       }
     }
 
+    setNodeOutputs(outputs);
     setRunResults(results);
     setShowResults(true);
     setIsRunning(false);
@@ -283,20 +465,17 @@ export function PipelineToolbar() {
 
       {/* Results Dialog */}
       <Dialog open={showResults} onOpenChange={setShowResults}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Dataset Connection Results</DialogTitle>
+            <DialogTitle>Pipeline Execution Results</DialogTitle>
             <DialogDescription>
-              Connection check and file count for all datasets
+              Execution results for all nodes in the pipeline
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 max-h-[400px] overflow-y-auto py-4">
-            {Array.from(runResults.entries()).map(([nodeId, result]) => {
-              const node = nodes.find(n => n.id === nodeId);
-              const nodeLabel = node?.data.label || 'Unknown Dataset';
-
-              return (
-                <div key={nodeId} className="flex items-start gap-3 p-3 border rounded-lg">
+          <ScrollArea className="max-h-[400px]">
+            <div className="space-y-3 py-4 pr-4">
+              {runResults.map((result, index) => (
+                <div key={result.nodeId} className="flex items-start gap-3 p-3 border rounded-lg">
                   <div className="pt-0.5">
                     {result.success ? (
                       <CheckCircle2 className="w-5 h-5 text-green-500" />
@@ -305,21 +484,39 @@ export function PipelineToolbar() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm">{nodeLabel}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">{index + 1}.</span>
+                      <p className="font-medium text-sm">{result.nodeLabel}</p>
+                      <Badge variant="outline" className="text-xs">
+                        {result.nodeType}
+                      </Badge>
+                    </div>
                     {result.success ? (
-                      <p className="text-sm text-green-600 font-semibold">
-                        ✓ {result.fileCount} files found
-                      </p>
+                      <div className="mt-1 space-y-0.5">
+                        <p className="text-sm text-green-600 font-medium">
+                          ✓ {result.message || 'Completed successfully'}
+                        </p>
+                        {result.fileCount !== undefined && (
+                          <p className="text-xs text-muted-foreground">
+                            Files: {result.fileCount}
+                          </p>
+                        )}
+                        {result.outputPath && (
+                          <p className="text-xs text-muted-foreground truncate" title={result.outputPath}>
+                            Output: {result.outputPath}
+                          </p>
+                        )}
+                      </div>
                     ) : (
-                      <p className="text-sm text-red-600">
-                        ✗ {result.error || 'Connection failed'}
+                      <p className="text-sm text-red-600 mt-1">
+                        ✗ {result.error || result.message || 'Execution failed'}
                       </p>
                     )}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          </ScrollArea>
           <DialogFooter>
             <Button onClick={() => setShowResults(false)}>Close</Button>
           </DialogFooter>

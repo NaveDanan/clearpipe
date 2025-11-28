@@ -110,6 +110,12 @@ export interface PreprocessingStep {
   type: 'normalize' | 'standardize' | 'encode' | 'impute' | 'feature_engineering' | 'custom';
   params: Record<string, unknown>;
   enabled: boolean;
+  // Script execution configuration
+  scriptSource?: 'local' | 'inline';
+  scriptPath?: string; // Path to the .py file when scriptSource is 'local'
+  inlineScript?: string; // Python code when scriptSource is 'inline'
+  dataSourceVariable?: string; // Variable name to replace with the input data path (default: 'DATA_SOURCE')
+  outputVariables?: string[]; // Variable names that contain output paths (default: ['OUTPUT_PATH'])
 }
 
 // Training node configuration

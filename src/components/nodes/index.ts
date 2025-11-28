@@ -2,6 +2,7 @@
 export { DatasetNode, checkDatasetConnection } from './dataset';
 export { VersioningNode, executeVersioning } from './versioning';
 export { PreprocessingNode, executePreprocessing } from './preprocessing';
+export type { PreprocessingExecutionResult } from './preprocessing';
 export { TrainingNode, executeTraining } from './training';
 export { ExperimentNode, executeExperiment } from './experiment';
 export { ReportNode, executeReport } from './report';

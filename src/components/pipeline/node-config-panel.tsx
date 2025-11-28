@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState, useEffect } from 'react';
-import { X, Settings, Database, GitBranch, Wand2, Cpu, BarChart3, FileText, ChevronDown, Plus } from 'lucide-react';
+import { X, Settings, Database, GitBranch, Wand2, Cpu, BarChart3, FileText, ChevronDown, Plus, Pencil, Trash2, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,7 @@ import type {
   DatasetConfig,
   VersioningConfig,
   PreprocessingConfig,
+  PreprocessingStep,
   TrainingConfig,
   ExperimentConfig as ExperimentConfigType,
   ReportConfig as ReportConfigType,
@@ -756,6 +757,253 @@ interface PreprocessingConfigPanelProps {
 }
 
 function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanelProps) {
+  const [editingStepId, setEditingStepId] = useState<string | null>(null);
+  const [hoveredStepId, setHoveredStepId] = useState<string | null>(null);
+  
+  const editingStep = editingStepId ? config.steps.find(s => s.id === editingStepId) : null;
+  
+  const handleDeleteStep = (stepId: string) => {
+    onUpdate({ steps: config.steps.filter(s => s.id !== stepId) });
+    if (editingStepId === stepId) {
+      setEditingStepId(null);
+    }
+  };
+  
+  const handleUpdateStep = (stepId: string, updates: Partial<PreprocessingStep>) => {
+    onUpdate({
+      steps: config.steps.map(s => 
+        s.id === stepId ? { ...s, ...updates } : s
+      )
+    });
+  };
+  
+  const handleAddStep = () => {
+    const newStep: PreprocessingStep = {
+      id: `step-${Date.now()}`,
+      name: 'New Step',
+      type: 'custom' as const,
+      params: {},
+      enabled: true,
+      scriptSource: 'local',
+      scriptPath: '',
+      dataSourceVariable: 'DATA_SOURCE',
+      outputVariables: ['OUTPUT_PATH'],
+    };
+    onUpdate({ steps: [...config.steps, newStep] });
+  };
+  
+  // Helper functions for managing output variables
+  const getOutputVariables = (step: PreprocessingStep): string[] => {
+    return step.outputVariables && step.outputVariables.length > 0 
+      ? step.outputVariables 
+      : ['OUTPUT_PATH'];
+  };
+  
+  const handleAddOutputVariable = (stepId: string) => {
+    const step = config.steps.find(s => s.id === stepId);
+    if (!step) return;
+    const currentVars = getOutputVariables(step);
+    const newVarName = `OUTPUT_PATH_${currentVars.length + 1}`;
+    handleUpdateStep(stepId, { outputVariables: [...currentVars, newVarName] });
+  };
+  
+  const handleRemoveOutputVariable = (stepId: string, index: number) => {
+    const step = config.steps.find(s => s.id === stepId);
+    if (!step) return;
+    const currentVars = getOutputVariables(step);
+    if (currentVars.length <= 1) return; // Keep at least one
+    handleUpdateStep(stepId, { 
+      outputVariables: currentVars.filter((_, i) => i !== index) 
+    });
+  };
+  
+  const handleUpdateOutputVariable = (stepId: string, index: number, value: string) => {
+    const step = config.steps.find(s => s.id === stepId);
+    if (!step) return;
+    const currentVars = [...getOutputVariables(step)];
+    currentVars[index] = value;
+    handleUpdateStep(stepId, { outputVariables: currentVars });
+  };
+  
+  // If editing a step, show the edit panel
+  if (editingStep) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditingStepId(null)}
+            className="gap-1"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          <span className="font-medium">Edit Step</span>
+        </div>
+        
+        <Separator />
+        
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="stepName">Step Name</Label>
+            <Input
+              id="stepName"
+              value={editingStep.name}
+              onChange={(e) => handleUpdateStep(editingStep.id, { name: e.target.value })}
+              placeholder="e.g., Data Cleaning"
+            />
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Step Type</Label>
+            <Select 
+              value={editingStep.type} 
+              onValueChange={(value) => handleUpdateStep(editingStep.id, { type: value as PreprocessingStep['type'] })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="normalize">Normalize</SelectItem>
+                <SelectItem value="standardize">Standardize</SelectItem>
+                <SelectItem value="encode">Encode</SelectItem>
+                <SelectItem value="impute">Impute</SelectItem>
+                <SelectItem value="feature_engineering">Feature Engineering</SelectItem>
+                <SelectItem value="custom">Custom</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <Separator />
+          
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">Script Configuration</Label>
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Script Source</Label>
+            <Select 
+              value={editingStep.scriptSource || 'local'} 
+              onValueChange={(value) => handleUpdateStep(editingStep.id, { scriptSource: value as 'local' | 'inline' })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">Local File</SelectItem>
+                <SelectItem value="inline">Inline Script</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {editingStep.scriptSource === 'local' || !editingStep.scriptSource ? (
+            <div className="space-y-2">
+              <Label htmlFor="scriptPath">Script Path</Label>
+              <Input
+                id="scriptPath"
+                value={editingStep.scriptPath || ''}
+                onChange={(e) => handleUpdateStep(editingStep.id, { scriptPath: e.target.value })}
+                placeholder="e.g., /path/to/preprocess.py"
+              />
+              <p className="text-xs text-muted-foreground">
+                Path to the Python script (.py file) that will be executed
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="inlineScript">Inline Script</Label>
+              <Textarea
+                id="inlineScript"
+                value={editingStep.inlineScript || ''}
+                onChange={(e) => handleUpdateStep(editingStep.id, { inlineScript: e.target.value })}
+                placeholder="# Python preprocessing code..."
+                className="font-mono text-sm"
+                rows={8}
+              />
+            </div>
+          )}
+          
+          <Separator />
+          
+          <div className="space-y-2">
+            <Label className="text-sm font-semibold">Variable Configuration</Label>
+            <p className="text-xs text-muted-foreground">
+              Configure the variable names in your script that will be replaced with actual paths
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="dataSourceVariable">Data Source Variable</Label>
+            <Input
+              id="dataSourceVariable"
+              value={editingStep.dataSourceVariable || 'DATA_SOURCE'}
+              onChange={(e) => handleUpdateStep(editingStep.id, { dataSourceVariable: e.target.value })}
+              placeholder="DATA_SOURCE"
+            />
+            <p className="text-xs text-muted-foreground">
+              This variable in your script will be replaced with the input data path
+            </p>
+          </div>
+          
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Output Variables</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleAddOutputVariable(editingStep.id)}
+                className="h-7 text-xs"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Add Output
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Variable names that will contain output paths from your script
+            </p>
+            <div className="space-y-2">
+              {getOutputVariables(editingStep).map((varName, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <Input
+                    value={varName}
+                    onChange={(e) => handleUpdateOutputVariable(editingStep.id, index, e.target.value)}
+                    placeholder={`OUTPUT_PATH_${index + 1}`}
+                    className="flex-1"
+                  />
+                  {getOutputVariables(editingStep).length > 1 && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => handleRemoveOutputVariable(editingStep.id, index)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          <Separator />
+          
+          <div className="flex items-center justify-between">
+            <Label htmlFor="enabled">Enabled</Label>
+            <input
+              type="checkbox"
+              id="enabled"
+              checked={editingStep.enabled}
+              onChange={(e) => handleUpdateStep(editingStep.id, { enabled: e.target.checked })}
+              className="h-4 w-4"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  // Default view: list of steps
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -765,12 +1013,48 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
             <p className="text-sm text-muted-foreground">No steps configured</p>
           ) : (
             config.steps.map((step, index) => (
-              <Card key={step.id} className="p-3">
+              <Card 
+                key={step.id} 
+                className="p-3 relative group"
+                onMouseEnter={() => setHoveredStepId(step.id)}
+                onMouseLeave={() => setHoveredStepId(null)}
+              >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">{index + 1}. {step.name}</span>
-                  <Badge variant={step.enabled ? 'default' : 'secondary'}>
-                    {step.type}
-                  </Badge>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium">{index + 1}. {step.name}</span>
+                    {step.scriptPath && (
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {step.scriptPath}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hoveredStepId === step.id && (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setEditingStepId(step.id)}
+                          title="Edit step"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteStep(step.id)}
+                          title="Delete step"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                    <Badge variant={step.enabled ? 'default' : 'secondary'}>
+                      {step.type}
+                    </Badge>
+                  </div>
                 </div>
               </Card>
             ))
@@ -780,17 +1064,9 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
           variant="outline"
           size="sm"
           className="w-full"
-          onClick={() => {
-            const newStep = {
-              id: `step-${Date.now()}`,
-              name: 'New Step',
-              type: 'custom' as const,
-              params: {},
-              enabled: true,
-            };
-            onUpdate({ steps: [...config.steps, newStep] });
-          }}
+          onClick={handleAddStep}
         >
+          <Plus className="h-4 w-4 mr-1" />
           Add Step
         </Button>
       </div>

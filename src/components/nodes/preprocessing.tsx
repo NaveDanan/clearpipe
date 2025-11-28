@@ -2,9 +2,25 @@
 
 import React, { memo } from 'react';
 import { NodeProps } from '@xyflow/react';
-import { PreprocessingNodeData } from '@/types/pipeline';
+import { PreprocessingNodeData, PreprocessingConfig, PreprocessingStep } from '@/types/pipeline';
 import { BaseNodeComponent } from './base-node-component';
 import { NodeExecutionResult } from './shared/types';
+
+// Extended result type for preprocessing
+export interface PreprocessingExecutionResult extends NodeExecutionResult {
+  outputPath?: string;
+  outputPaths?: string[]; // Multiple output paths
+  stepResults?: {
+    stepId: string;
+    stepName: string;
+    success: boolean;
+    outputPath?: string;
+    outputPaths?: string[];
+    error?: string;
+    stdout?: string;
+    stderr?: string;
+  }[];
+}
 
 // Node content component for preprocessing
 function PreprocessingNodeContent({ data }: { data: PreprocessingNodeData }) {
@@ -47,31 +63,136 @@ function PreprocessingNodeComponent(props: NodeProps) {
 
 export const PreprocessingNode = memo(PreprocessingNodeComponent);
 
+// Execute a single preprocessing step
+async function executeStep(
+  step: PreprocessingStep, 
+  inputPath: string
+): Promise<{
+  success: boolean;
+  outputPath?: string;
+  outputPaths?: string[];
+  error?: string;
+  stdout?: string;
+  stderr?: string;
+  stepId: string;
+  stepName: string;
+}> {
+  try {
+    const response = await fetch('/api/preprocessing/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        step,
+        inputPath,
+      }),
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `API request failed: ${response.statusText}`,
+        stepId: step.id,
+        stepName: step.name,
+      };
+    }
+
+    return await response.json();
+  } catch (error) {
+    return {
+      success: false,
+      error: (error as Error).message,
+      stepId: step.id,
+      stepName: step.name,
+    };
+  }
+}
+
 // Execute preprocessing steps
-export async function executePreprocessing(config: any): Promise<NodeExecutionResult> {
+export async function executePreprocessing(
+  config: PreprocessingConfig, 
+  inputPath: string
+): Promise<PreprocessingExecutionResult> {
   try {
     const steps = config.steps || [];
     
     if (steps.length === 0) {
-      return { success: false, message: 'No preprocessing steps configured' };
+      return { 
+        success: false, 
+        message: 'No preprocessing steps configured',
+        outputPath: inputPath,
+        outputPaths: [inputPath],
+      };
     }
 
-    // Simulate preprocessing
-    const enabledSteps = steps.filter((s: any) => s.enabled);
+    const enabledSteps = steps.filter((s) => s.enabled);
     
-    for (let i = 0; i < enabledSteps.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 300));
+    if (enabledSteps.length === 0) {
+      return { 
+        success: true, 
+        message: 'No enabled preprocessing steps',
+        outputPath: inputPath,
+        outputPaths: [inputPath],
+      };
+    }
+
+    const stepResults: PreprocessingExecutionResult['stepResults'] = [];
+    let currentPath = inputPath;
+    let allOutputPaths: string[] = [];
+
+    // Execute steps sequentially
+    for (const step of enabledSteps) {
+      const result = await executeStep(step, currentPath);
+      stepResults.push(result);
+
+      if (!result.success) {
+        return {
+          success: false,
+          message: `Step "${step.name}" failed: ${result.error}`,
+          outputPath: currentPath,
+          outputPaths: allOutputPaths.length > 0 ? allOutputPaths : [currentPath],
+          stepResults,
+          data: {
+            stepsExecuted: stepResults.filter(r => r.success).length,
+            totalSteps: enabledSteps.length,
+            failedStep: step.name,
+          },
+        };
+      }
+
+      // Update the current path for the next step (use first output as primary)
+      if (result.outputPath) {
+        currentPath = result.outputPath;
+      }
+      
+      // Collect all output paths from this step
+      if (result.outputPaths && result.outputPaths.length > 0) {
+        allOutputPaths = result.outputPaths;
+      } else if (result.outputPath) {
+        allOutputPaths = [result.outputPath];
+      }
     }
 
     return {
       success: true,
       message: `Executed ${enabledSteps.length} preprocessing steps`,
+      outputPath: currentPath,
+      outputPaths: allOutputPaths,
+      stepResults,
       data: {
         stepsExecuted: enabledSteps.length,
         totalSteps: steps.length,
+        outputPath: currentPath,
+        outputPaths: allOutputPaths,
       },
     };
   } catch (error) {
-    return { success: false, message: (error as Error).message };
+    return { 
+      success: false, 
+      message: (error as Error).message,
+      outputPath: inputPath,
+      outputPaths: [inputPath],
+    };
   }
 }

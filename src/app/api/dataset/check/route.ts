@@ -230,8 +230,19 @@ async function handleS3Source(
   }
 
   try {
-    // Dynamic import for AWS SDK
-    const { S3Client, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    // Dynamic import for AWS SDK - check if package is installed
+    let S3Client: any, ListObjectsV2Command: any;
+    try {
+      const awsS3 = await import('@aws-sdk/client-s3');
+      S3Client = awsS3.S3Client;
+      ListObjectsV2Command = awsS3.ListObjectsV2Command;
+    } catch {
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: 'AWS SDK not installed. Run: pnpm add @aws-sdk/client-s3',
+      });
+    }
 
     const s3Client = new S3Client({
       region: region || 'us-east-1',
@@ -318,7 +329,19 @@ async function handleMinIOSource(
   }
 
   try {
-    const { S3Client, ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    // Dynamic import for AWS SDK - check if package is installed
+    let S3Client: any, ListObjectsV2Command: any;
+    try {
+      const awsS3 = await import('@aws-sdk/client-s3');
+      S3Client = awsS3.S3Client;
+      ListObjectsV2Command = awsS3.ListObjectsV2Command;
+    } catch {
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: 'AWS SDK not installed. Run: pnpm add @aws-sdk/client-s3',
+      });
+    }
 
     const s3Client = new S3Client({
       endpoint: endpoint,
@@ -398,7 +421,18 @@ async function handleGCSSource(
   }
 
   try {
-    const { Storage } = await import('@google-cloud/storage');
+    // Dynamic import for GCS SDK - check if package is installed
+    let Storage: any;
+    try {
+      const gcs = await import('@google-cloud/storage');
+      Storage = gcs.Storage;
+    } catch {
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: 'Google Cloud Storage SDK not installed. Run: pnpm add @google-cloud/storage',
+      });
+    }
 
     // Parse the service account key
     let keyFile;
@@ -422,8 +456,8 @@ async function handleGCSSource(
     });
 
     const matchingFiles = files
-      .filter(file => filePattern.test(file.name))
-      .map(file => file.name);
+      .filter((file: any) => filePattern.test(file.name))
+      .map((file: any) => file.name);
 
     return NextResponse.json({
       success: true,
@@ -474,7 +508,19 @@ async function handleAzureBlobSource(
   }
 
   try {
-    const { BlobServiceClient, StorageSharedKeyCredential } = await import('@azure/storage-blob');
+    // Dynamic import for Azure SDK - check if package is installed
+    let BlobServiceClient: any, StorageSharedKeyCredential: any;
+    try {
+      const azureBlob = await import('@azure/storage-blob');
+      BlobServiceClient = azureBlob.BlobServiceClient;
+      StorageSharedKeyCredential = azureBlob.StorageSharedKeyCredential;
+    } catch {
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: 'Azure Storage SDK not installed. Run: pnpm add @azure/storage-blob',
+      });
+    }
 
     let blobServiceClient: InstanceType<typeof BlobServiceClient>;
 
