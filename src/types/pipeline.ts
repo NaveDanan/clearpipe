@@ -90,21 +90,21 @@ export interface VersioningConfig {
   metadata?: Record<string, unknown>;
 }
 
-// Preprocessing node configuration
-export interface PreprocessingNodeData extends BaseNodeData {
-  type: 'preprocessing';
-  config: PreprocessingConfig;
+// Execute node configuration
+export interface ExecuteNodeData extends BaseNodeData {
+  type: 'execute';
+  config: ExecuteConfig;
 }
 
-export interface PreprocessingConfig {
+export interface ExecuteConfig {
   [key: string]: unknown;
-  steps: PreprocessingStep[];
+  steps: ExecuteStep[];
   inputColumns?: string[];
   outputColumns?: string[];
   customCode?: string;
 }
 
-export interface PreprocessingStep {
+export interface ExecuteStep {
   id: string;
   name: string;
   type: 'normalize' | 'standardize' | 'encode' | 'impute' | 'feature_engineering' | 'custom';
@@ -221,7 +221,7 @@ export interface ReportSection {
 export type PipelineNodeData =
   | DatasetNodeData
   | VersioningNodeData
-  | PreprocessingNodeData
+  | ExecuteNodeData
   | TrainingNodeData
   | ExperimentNodeData
   | ReportNodeData;

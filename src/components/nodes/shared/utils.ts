@@ -6,7 +6,7 @@ export function getCategoryFromType(type: string): NodeCategory {
     case 'dataset':
     case 'versioning':
       return 'data';
-    case 'preprocessing':
+    case 'execute':
       return 'processing';
     case 'training':
       return 'training';

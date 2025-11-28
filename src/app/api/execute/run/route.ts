@@ -85,7 +85,7 @@ function autoDetectVenv(scriptPath: string): string | null {
 /**
  * Determine the Python command to use based on venv configuration
  */
-function getPythonCommand(step: PreprocessingStep): { pythonPath: string; venvUsed: boolean; venvPath?: string } {
+function getPythonCommand(step: ExecuteStep): { pythonPath: string; venvUsed: boolean; venvPath?: string } {
   // If venv mode is 'none', use system Python
   if (step.venvMode === 'none') {
     return { pythonPath: 'python3', venvUsed: false };
@@ -124,7 +124,7 @@ function getPythonCommand(step: PreprocessingStep): { pythonPath: string; venvUs
   return { pythonPath: 'python3', venvUsed: false };
 }
 
-interface PreprocessingStep {
+interface ExecuteStep {
   id: string;
   name: string;
   type: string;
@@ -140,12 +140,12 @@ interface PreprocessingStep {
   venvMode?: 'auto' | 'custom' | 'none';
 }
 
-interface RunPreprocessingRequest {
-  step: PreprocessingStep;
+interface RunExecuteRequest {
+  step: ExecuteStep;
   inputPath: string; // Path from the dataset node
 }
 
-interface PreprocessingResult {
+interface ExecuteResult {
   success: boolean;
   outputPaths?: string[]; // Multiple output paths
   outputPath?: string; // Primary output path (first one) for backward compatibility
@@ -156,9 +156,9 @@ interface PreprocessingResult {
   stepName: string;
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse<PreprocessingResult>> {
+export async function POST(request: NextRequest): Promise<NextResponse<ExecuteResult>> {
   try {
-    const body: RunPreprocessingRequest = await request.json();
+    const body: RunExecuteRequest = await request.json();
     const { step, inputPath } = body;
 
     if (!step) {
@@ -285,7 +285,7 @@ ${outputPrintLogic}
       const { pythonPath, venvUsed, venvPath } = getPythonCommand(step);
       
       // Log which Python is being used (for debugging)
-      console.log(`[Preprocessing] Using Python: ${pythonPath} (venv: ${venvUsed ? venvPath : 'none'})`);
+      console.log(`[Execute] Using Python: ${pythonPath} (venv: ${venvUsed ? venvPath : 'none'})`);
       
       // Execute the Python script with the appropriate Python interpreter
       const { stdout, stderr } = await execAsync(`"${pythonPath}" "${wrapperScriptPath}"`, {

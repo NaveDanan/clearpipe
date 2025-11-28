@@ -25,8 +25,8 @@ export const nodeTypeDefinitions: NodeTypeDefinition[] = [
     },
   },
   {
-    type: 'preprocessing',
-    label: 'Preprocessing',
+    type: 'execute',
+    label: 'Execute',
     description: 'Transform and prepare your data',
     icon: 'Wand2',
     category: 'processing',
@@ -199,7 +199,7 @@ export const versioningToolOptions = [
   { value: 'custom', label: 'Custom' },
 ];
 
-export const preprocessingStepTypes = [
+export const executeStepTypes = [
   { value: 'normalize', label: 'Normalize' },
   { value: 'standardize', label: 'Standardize' },
   { value: 'encode', label: 'Encode Categorical' },

@@ -1,8 +1,8 @@
 // Node components and their execution functions
 export { DatasetNode, checkDatasetConnection } from './dataset';
 export { VersioningNode, executeVersioning } from './versioning';
-export { PreprocessingNode, executePreprocessing } from './preprocessing';
-export type { PreprocessingExecutionResult } from './preprocessing';
+export { ExecuteNode, runExecute } from './execute';
+export type { ExecuteExecutionResult } from './execute';
 export { TrainingNode, executeTraining } from './training';
 export { ExperimentNode, executeExperiment } from './experiment';
 export { ReportNode, executeReport } from './report';
@@ -16,7 +16,7 @@ export * from './shared';
 // Node types mapping for React Flow
 import { DatasetNode } from './dataset';
 import { VersioningNode } from './versioning';
-import { PreprocessingNode } from './preprocessing';
+import { ExecuteNode } from './execute';
 import { TrainingNode } from './training';
 import { ExperimentNode } from './experiment';
 import { ReportNode } from './report';
@@ -24,7 +24,7 @@ import { ReportNode } from './report';
 export const nodeTypes = {
   dataset: DatasetNode,
   versioning: VersioningNode,
-  preprocessing: PreprocessingNode,
+  execute: ExecuteNode,
   training: TrainingNode,
   experiment: ExperimentNode,
   report: ReportNode,

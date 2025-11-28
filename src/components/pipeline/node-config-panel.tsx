@@ -28,14 +28,14 @@ import type {
   PipelineNodeData,
   DatasetNodeData,
   VersioningNodeData,
-  PreprocessingNodeData,
+  ExecuteNodeData,
   TrainingNodeData,
   ExperimentNodeData,
   ReportNodeData,
   DatasetConfig,
   VersioningConfig,
-  PreprocessingConfig,
-  PreprocessingStep,
+  ExecuteConfig,
+  ExecuteStep,
   TrainingConfig,
   ExperimentConfig as ExperimentConfigType,
   ReportConfig as ReportConfigType,
@@ -44,7 +44,7 @@ import type {
 const nodeIcons: Record<string, React.ReactNode> = {
   dataset: <Database className="h-5 w-5" />,
   versioning: <GitBranch className="h-5 w-5" />,
-  preprocessing: <Wand2 className="h-5 w-5" />,
+  execute: <Wand2 className="h-5 w-5" />,
   training: <Cpu className="h-5 w-5" />,
   experiment: <BarChart3 className="h-5 w-5" />,
   report: <FileText className="h-5 w-5" />,
@@ -256,10 +256,10 @@ export function NodeConfigPanel() {
             onUpdate={handleUpdateConfig}
           />
         );
-      case 'preprocessing':
+      case 'execute':
         return (
-          <PreprocessingConfigPanel
-            config={(nodeData as PreprocessingNodeData).config}
+          <ExecuteConfigPanel
+            config={(nodeData as ExecuteNodeData).config}
             onUpdate={handleUpdateConfig}
           />
         );
@@ -750,13 +750,13 @@ function VersioningConfigPanel({ config, onUpdate }: VersioningConfigPanelProps)
   );
 }
 
-// Preprocessing Configuration Panel
-interface PreprocessingConfigPanelProps {
-  config: PreprocessingConfig;
-  onUpdate: (updates: Partial<PreprocessingConfig>) => void;
+// Execute Configuration Panel
+interface ExecuteConfigPanelProps {
+  config: ExecuteConfig;
+  onUpdate: (updates: Partial<ExecuteConfig>) => void;
 }
 
-function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanelProps) {
+function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [hoveredStepId, setHoveredStepId] = useState<string | null>(null);
   const [venvStatus, setVenvStatus] = useState<{
@@ -779,7 +779,7 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
     setVenvStatus({ checking: true, detected: false });
     
     try {
-      const response = await fetch('/api/preprocessing/check-venv', {
+      const response = await fetch('/api/execute/check-venv', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scriptPath, customVenvPath }),
@@ -831,7 +831,7 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
     }
   };
   
-  const handleUpdateStep = (stepId: string, updates: Partial<PreprocessingStep>) => {
+  const handleUpdateStep = (stepId: string, updates: Partial<ExecuteStep>) => {
     onUpdate({
       steps: config.steps.map(s => 
         s.id === stepId ? { ...s, ...updates } : s
@@ -840,7 +840,7 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
   };
   
   const handleAddStep = () => {
-    const newStep: PreprocessingStep = {
+    const newStep: ExecuteStep = {
       id: `step-${Date.now()}`,
       name: 'New Step',
       type: 'custom' as const,
@@ -855,7 +855,7 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
   };
   
   // Helper functions for managing output variables
-  const getOutputVariables = (step: PreprocessingStep): string[] => {
+  const getOutputVariables = (step: ExecuteStep): string[] => {
     return step.outputVariables && step.outputVariables.length > 0 
       ? step.outputVariables 
       : ['OUTPUT_PATH'];
@@ -921,7 +921,7 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
             <Label>Step Type</Label>
             <Select 
               value={editingStep.type} 
-              onValueChange={(value) => handleUpdateStep(editingStep.id, { type: value as PreprocessingStep['type'] })}
+              onValueChange={(value) => handleUpdateStep(editingStep.id, { type: value as ExecuteStep['type'] })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select type" />
@@ -1084,7 +1084,7 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
                 id="inlineScript"
                 value={editingStep.inlineScript || ''}
                 onChange={(e) => handleUpdateStep(editingStep.id, { inlineScript: e.target.value })}
-                placeholder="# Python preprocessing code..."
+                placeholder="# Python code..."
                 className="font-mono text-sm"
                 rows={8}
               />
@@ -1174,7 +1174,7 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label>Preprocessing Steps</Label>
+        <Label>Execute Steps</Label>
         <div className="space-y-2">
           {config.steps.length === 0 ? (
             <p className="text-sm text-muted-foreground">No steps configured</p>
@@ -1241,12 +1241,12 @@ function PreprocessingConfigPanel({ config, onUpdate }: PreprocessingConfigPanel
       <Separator />
       
       <div className="space-y-2">
-        <Label htmlFor="customCode">Custom Preprocessing Code</Label>
+        <Label htmlFor="customCode">Custom Execute Code</Label>
         <Textarea
           id="customCode"
           value={config.customCode || ''}
           onChange={(e) => onUpdate({ customCode: e.target.value })}
-          placeholder="# Python preprocessing code..."
+          placeholder="# Python code..."
           className="font-mono text-sm"
           rows={6}
         />

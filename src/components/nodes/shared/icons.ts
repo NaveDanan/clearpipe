@@ -16,7 +16,7 @@ import { NodeStatus } from '@/types/pipeline';
 export const nodeIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   dataset: Database,
   versioning: GitBranch,
-  preprocessing: Wand2,
+  execute: Wand2,
   training: Cpu,
   experiment: FlaskConical,
   report: FileText,

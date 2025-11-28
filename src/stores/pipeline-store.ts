@@ -95,11 +95,11 @@ const getDefaultNodeData = (type: PipelineNodeData['type']): PipelineNodeData =>
           version: '1.0.0',
         },
       };
-    case 'preprocessing':
+    case 'execute':
       return {
         ...baseData,
-        type: 'preprocessing',
-        label: 'Preprocessing',
+        type: 'execute',
+        label: 'Execute',
         description: 'Transform and prepare your data',
         config: {
           steps: [],

@@ -2,12 +2,12 @@
 
 import React, { memo } from 'react';
 import { NodeProps } from '@xyflow/react';
-import { PreprocessingNodeData, PreprocessingConfig, PreprocessingStep } from '@/types/pipeline';
+import { ExecuteNodeData, ExecuteConfig, ExecuteStep } from '@/types/pipeline';
 import { BaseNodeComponent } from './base-node-component';
 import { NodeExecutionResult } from './shared/types';
 
-// Extended result type for preprocessing
-export interface PreprocessingExecutionResult extends NodeExecutionResult {
+// Extended result type for execute
+export interface ExecuteExecutionResult extends NodeExecutionResult {
   outputPath?: string;
   outputPaths?: string[]; // Multiple output paths
   stepResults?: {
@@ -22,8 +22,8 @@ export interface PreprocessingExecutionResult extends NodeExecutionResult {
   }[];
 }
 
-// Node content component for preprocessing
-function PreprocessingNodeContent({ data }: { data: PreprocessingNodeData }) {
+// Node content component for execute
+function ExecuteNodeContent({ data }: { data: ExecuteNodeData }) {
   return (
     <div className="space-y-1 text-xs">
       <div className="flex justify-between">
@@ -50,22 +50,22 @@ function PreprocessingNodeContent({ data }: { data: PreprocessingNodeData }) {
   );
 }
 
-// Preprocessing node component
-function PreprocessingNodeComponent(props: NodeProps) {
-  const data = props.data as PreprocessingNodeData & Record<string, unknown>;
+// Execute node component
+function ExecuteNodeComponent(props: NodeProps) {
+  const data = props.data as ExecuteNodeData & Record<string, unknown>;
   
   return (
     <BaseNodeComponent {...props} data={data}>
-      <PreprocessingNodeContent data={data} />
+      <ExecuteNodeContent data={data} />
     </BaseNodeComponent>
   );
 }
 
-export const PreprocessingNode = memo(PreprocessingNodeComponent);
+export const ExecuteNode = memo(ExecuteNodeComponent);
 
-// Execute a single preprocessing step
+// Execute a single step
 async function executeStep(
-  step: PreprocessingStep, 
+  step: ExecuteStep, 
   inputPath: string
 ): Promise<{
   success: boolean;
@@ -78,7 +78,7 @@ async function executeStep(
   stepName: string;
 }> {
   try {
-    const response = await fetch('/api/preprocessing/run', {
+    const response = await fetch('/api/execute/run', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -109,18 +109,18 @@ async function executeStep(
   }
 }
 
-// Execute preprocessing steps
-export async function executePreprocessing(
-  config: PreprocessingConfig, 
+// Execute steps
+export async function runExecute(
+  config: ExecuteConfig, 
   inputPath: string
-): Promise<PreprocessingExecutionResult> {
+): Promise<ExecuteExecutionResult> {
   try {
     const steps = config.steps || [];
     
     if (steps.length === 0) {
       return { 
         success: false, 
-        message: 'No preprocessing steps configured',
+        message: 'No execute steps configured',
         outputPath: inputPath,
         outputPaths: [inputPath],
       };
@@ -131,13 +131,13 @@ export async function executePreprocessing(
     if (enabledSteps.length === 0) {
       return { 
         success: true, 
-        message: 'No enabled preprocessing steps',
+        message: 'No enabled execute steps',
         outputPath: inputPath,
         outputPaths: [inputPath],
       };
     }
 
-    const stepResults: PreprocessingExecutionResult['stepResults'] = [];
+    const stepResults: ExecuteExecutionResult['stepResults'] = [];
     let currentPath = inputPath;
     let allOutputPaths: string[] = [];
 
@@ -176,7 +176,7 @@ export async function executePreprocessing(
 
     return {
       success: true,
-      message: `Executed ${enabledSteps.length} preprocessing steps`,
+      message: `Executed ${enabledSteps.length} steps`,
       outputPath: currentPath,
       outputPaths: allOutputPaths,
       stepResults,

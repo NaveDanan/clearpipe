@@ -35,8 +35,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { usePipelineStore } from '@/stores/pipeline-store';
-import type { PipelineNodeData, PipelineNode, PipelineEdge, DatasetNodeData, PreprocessingNodeData } from '@/types/pipeline';
-import { checkDatasetConnection, executePreprocessing } from '@/components/nodes';
+import type { PipelineNodeData, PipelineNode, PipelineEdge, DatasetNodeData, ExecuteNodeData } from '@/types/pipeline';
+import { checkDatasetConnection, runExecute } from '@/components/nodes';
 import { SettingsDialog } from '@/components/ui/settings-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -227,8 +227,8 @@ export function PipelineToolbar() {
             break;
           }
 
-          case 'preprocessing': {
-            const preprocessingData = nodeData as PreprocessingNodeData;
+          case 'execute': {
+            const executeData = nodeData as ExecuteNodeData;
             
             // Get input path from the source node
             const sourceNode = getSourceNode(node.id, edges, nodes);
@@ -254,23 +254,23 @@ export function PipelineToolbar() {
               break;
             }
 
-            const preprocessResult = await executePreprocessing(preprocessingData.config, inputPath);
+            const executeResult = await runExecute(executeData.config, inputPath);
             
             result = {
               nodeId: node.id,
               nodeLabel: nodeData.label,
               nodeType: nodeType,
-              success: preprocessResult.success,
-              message: preprocessResult.message,
-              outputPath: preprocessResult.outputPath,
-              error: preprocessResult.success ? undefined : preprocessResult.message,
+              success: executeResult.success,
+              message: executeResult.message,
+              outputPath: executeResult.outputPath,
+              error: executeResult.success ? undefined : executeResult.message,
             };
 
-            if (preprocessResult.success) {
-              outputs.set(node.id, { path: preprocessResult.outputPath || inputPath });
-              updateNodeStatus(node.id, 'completed', preprocessResult.message);
+            if (executeResult.success) {
+              outputs.set(node.id, { path: executeResult.outputPath || inputPath });
+              updateNodeStatus(node.id, 'completed', executeResult.message);
             } else {
-              updateNodeStatus(node.id, 'error', preprocessResult.message);
+              updateNodeStatus(node.id, 'error', executeResult.message);
             }
             break;
           }

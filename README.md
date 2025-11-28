@@ -16,7 +16,7 @@ An interactive visual ML pipeline builder. Create, configure, and manage machine
 - 📦 **Multiple Node Types**:
   - **Dataset** - Load data from local, cloud (S3, GCS, Azure Blob), or URLs
   - **Versioning** - Version control with DVC, Git LFS, ClearML Data, MLflow
-  - **Preprocessing** - Data transformation and feature engineering
+  - **Execute** - Data transformation and feature engineering
   - **Training** - Train models on local or cloud (GCP, AWS, Azure)
   - **Experiment Tracking** - Integrate with ClearML, MLflow, W&B, Comet
   - **Report** - Generate model reports in HTML, PDF, Markdown, or JSON
