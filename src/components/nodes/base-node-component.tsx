@@ -50,10 +50,11 @@ export function BaseNodeComponent({ id, data, selected, children }: BaseNodeComp
         selected && 'ring-2 ring-primary ring-offset-2'
       )}
     >
-      {/* Input Handle */}
+      {/* Input Handle - Left side */}
       <Handle
         type="target"
         position={Position.Left}
+        id="target"
         className="!w-3 !h-3 !bg-muted-foreground !border-2 !border-background"
       />
 
@@ -118,10 +119,11 @@ export function BaseNodeComponent({ id, data, selected, children }: BaseNodeComp
         </div>
       </div>
 
-      {/* Output Handle */}
+      {/* Output Handle - Right side */}
       <Handle
         type="source"
         position={Position.Right}
+        id="source"
         className="!w-3 !h-3 !bg-muted-foreground !border-2 !border-background"
       />
     </div>

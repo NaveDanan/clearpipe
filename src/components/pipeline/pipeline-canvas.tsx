@@ -10,6 +10,8 @@ import {
   useReactFlow,
   ConnectionMode,
   Panel,
+  Connection,
+  EdgeChange,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -34,6 +36,26 @@ function PipelineCanvasInner() {
     addNode,
     selectNode,
   } = usePipelineStore();
+
+  // Validate connection: source must have output (right), target must have input (left)
+  const isValidConnection = useCallback((connection: Connection) => {
+    // Prevent connections from source to source or target to target
+    if (connection.sourceHandle === connection.targetHandle) {
+      return false;
+    }
+    
+    // Ensure source is connecting FROM right (output) and target is connecting TO left (input)
+    if (connection.sourceHandle !== 'source' || connection.targetHandle !== 'target') {
+      return false;
+    }
+    
+    // Prevent self-connections
+    if (connection.source === connection.target) {
+      return false;
+    }
+    
+    return true;
+  }, []);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -76,6 +98,29 @@ function PipelineCanvasInner() {
     selectNode(null);
   }, [selectNode]);
 
+  // Handle edge reconnection for established connections
+  const onReconnect = useCallback((oldEdge: any, newConnection: Connection) => {
+    // Validate the new connection
+    if (!isValidConnection(newConnection)) {
+      return;
+    }
+
+    // Remove old edge and add new one through store
+    const { nodes: currentNodes, edges: currentEdges, deleteNode: _, ...storeActions } = usePipelineStore.getState();
+    const newEdges = currentEdges
+      .filter(edge => edge.id !== oldEdge.id)
+      .concat({
+        ...newConnection,
+        id: oldEdge.id, // Keep the same edge ID
+        type: 'smoothstep',
+        animated: true,
+        animationDuration: 1000,
+      });
+
+    // Update edges in store
+    usePipelineStore.setState({ edges: newEdges, isDirty: true });
+  }, [isValidConnection]);
+
   return (
     <div className="flex h-screen w-full">
       {/* Left Sidebar - Node Palette */}
@@ -97,18 +142,21 @@ function PipelineCanvasInner() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onReconnect={onReconnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
           onPaneClick={onPaneClick}
           nodeTypes={nodeTypes}
-          connectionMode={ConnectionMode.Loose}
+          connectionMode={ConnectionMode.Strict}
+          isValidConnection={isValidConnection}
           fitView
           snapToGrid
           snapGrid={[15, 15]}
           defaultEdgeOptions={{
             type: 'smoothstep',
             animated: true,
+            animationDuration: 1000,
           }}
           proOptions={{ hideAttribution: true }}
         >
