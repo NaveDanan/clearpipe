@@ -14,6 +14,7 @@ import {
   PipelineEdge,
   PipelineNodeData,
   NodeStatus,
+  ExecutionLogs,
 } from '@/types/pipeline';
 
 interface PipelineState {
@@ -42,6 +43,7 @@ interface PipelineState {
   addNode: (type: PipelineNodeData['type'], position: { x: number; y: number }) => string;
   updateNodeData: (nodeId: string, data: Partial<PipelineNodeData>) => void;
   updateNodeStatus: (nodeId: string, status: NodeStatus, message?: string) => void;
+  updateNodeExecutionLogs: (nodeId: string, logs: ExecutionLogs) => void;
   deleteNode: (nodeId: string) => void;
   duplicateNode: (nodeId: string) => void;
   
@@ -243,6 +245,23 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
                 ...node.data,
                 status,
                 statusMessage: message,
+                lastUpdated: new Date().toISOString(),
+              } as PipelineNodeData,
+            }
+          : node
+      ),
+    });
+  },
+
+  updateNodeExecutionLogs: (nodeId, logs) => {
+    set({
+      nodes: get().nodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              data: {
+                ...node.data,
+                executionLogs: logs,
                 lastUpdated: new Date().toISOString(),
               } as PipelineNodeData,
             }

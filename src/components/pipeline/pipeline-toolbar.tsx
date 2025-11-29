@@ -35,7 +35,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { usePipelineStore } from '@/stores/pipeline-store';
-import type { PipelineNodeData, PipelineNode, PipelineEdge, DatasetNodeData, ExecuteNodeData } from '@/types/pipeline';
+import type { PipelineNodeData, PipelineNode, PipelineEdge, DatasetNodeData, ExecuteNodeData, ExecutionLogs } from '@/types/pipeline';
 import { checkDatasetConnection, runExecute } from '@/components/nodes';
 import { SettingsDialog } from '@/components/ui/settings-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -47,6 +47,7 @@ interface NodeExecutionResult {
   success: boolean;
   message?: string;
   outputPath?: string;
+  outputPaths?: Record<string, string>; // Named outputs: { OUTPUT_PATH: "/path/to/file", TRAIN_OUT: "/path/train.csv" }
   fileCount?: number;
   error?: string;
 }
@@ -121,6 +122,7 @@ export function PipelineToolbar() {
     importPipeline,
     reset,
     updateNodeStatus,
+    updateNodeExecutionLogs,
   } = usePipelineStore();
 
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -200,7 +202,70 @@ export function PipelineToolbar() {
         switch (nodeType) {
           case 'dataset': {
             const datasetData = nodeData as DatasetNodeData;
-            const checkResult = await checkDatasetConnection(datasetData.config);
+            let resolvedPath = datasetData.config.path;
+            
+            // Resolve variable references like {{sourceNode.OUTPUT_PATH}}
+            if (resolvedPath && resolvedPath.includes('{{sourceNode.')) {
+              const sourceNode = getSourceNode(node.id, edges, nodes);
+              if (sourceNode) {
+                const sourceOutput = outputs.get(sourceNode.id);
+                if (sourceOutput) {
+                  // Extract the variable name from the template
+                  const varMatch = resolvedPath.match(/\{\{sourceNode\.(\w+)\}\}/);
+                  if (varMatch) {
+                    const varName = varMatch[1];
+                    
+                    // Check if the variable is in the source output's named outputs
+                    const namedOutputs = (sourceOutput as any).namedOutputs;
+                    if (namedOutputs && namedOutputs[varName]) {
+                      resolvedPath = namedOutputs[varName];
+                    } else if (varName.toLowerCase() === 'outputpath' || varName === 'path') {
+                      // Fall back to the generic path
+                      resolvedPath = sourceOutput.path;
+                    } else {
+                      // Variable not found in named outputs
+                      result = {
+                        nodeId: node.id,
+                        nodeLabel: nodeData.label,
+                        nodeType: nodeType,
+                        success: false,
+                        error: `Variable "${varName}" not found in source node output. Available: ${namedOutputs ? Object.keys(namedOutputs).join(', ') : 'outputPath'}`,
+                        message: `Could not resolve {{sourceNode.${varName}}}`,
+                      };
+                      updateNodeStatus(node.id, 'error', `Variable ${varName} not found`);
+                      break;
+                    }
+                  }
+                } else {
+                  result = {
+                    nodeId: node.id,
+                    nodeLabel: nodeData.label,
+                    nodeType: nodeType,
+                    success: false,
+                    error: 'Source node has no output. Ensure the source node executed successfully.',
+                    message: 'No source output available',
+                  };
+                  updateNodeStatus(node.id, 'error', 'No source output');
+                  break;
+                }
+              } else {
+                result = {
+                  nodeId: node.id,
+                  nodeLabel: nodeData.label,
+                  nodeType: nodeType,
+                  success: false,
+                  error: 'No source node connected. Connect a node that produces output.',
+                  message: 'No source node connected',
+                };
+                updateNodeStatus(node.id, 'error', 'No source connected');
+                break;
+              }
+            }
+            
+            const checkResult = await checkDatasetConnection({
+              ...datasetData.config,
+              path: resolvedPath,
+            });
             
             result = {
               nodeId: node.id,
@@ -212,12 +277,12 @@ export function PipelineToolbar() {
               message: checkResult.success 
                 ? `Found ${checkResult.fileCount} files` 
                 : checkResult.error,
-              outputPath: datasetData.config.path,
+              outputPath: resolvedPath,
             };
 
             if (checkResult.success) {
               outputs.set(node.id, { 
-                path: datasetData.config.path, 
+                path: resolvedPath, 
                 fileCount: checkResult.fileCount 
               });
               updateNodeStatus(node.id, 'completed', `Found ${checkResult.fileCount} files`);
@@ -260,6 +325,27 @@ export function PipelineToolbar() {
 
             const executeResult = await runExecute(executeData.config, inputPath);
             
+            // Build named outputs from step results and config
+            const namedOutputs: Record<string, string> = {};
+            
+            if (executeResult.success && executeResult.stepResults && executeResult.stepResults.length > 0) {
+              executeResult.stepResults.forEach((stepResult, stepIndex) => {
+                const step = enabledSteps[stepIndex];
+                if (step && step.outputVariables && stepResult.outputPaths) {
+                  step.outputVariables.forEach((varName, varIndex) => {
+                    if (stepResult.outputPaths && stepResult.outputPaths[varIndex]) {
+                      namedOutputs[varName] = stepResult.outputPaths[varIndex];
+                    }
+                  });
+                }
+              });
+            }
+            
+            // Store the primary output path
+            if (executeResult.outputPath) {
+              namedOutputs['outputPath'] = executeResult.outputPath;
+            }
+            
             result = {
               nodeId: node.id,
               nodeLabel: nodeData.label,
@@ -267,14 +353,97 @@ export function PipelineToolbar() {
               success: executeResult.success,
               message: executeResult.message,
               outputPath: executeResult.outputPath,
+              outputPaths: Object.keys(namedOutputs).length > 0 ? namedOutputs : undefined,
               error: executeResult.success ? undefined : executeResult.message,
             };
 
             if (executeResult.success) {
-              outputs.set(node.id, { path: executeResult.outputPath || inputPath });
+              
+              outputs.set(node.id, { 
+                path: executeResult.outputPath || inputPath,
+                namedOutputs,
+              } as any);
               updateNodeStatus(node.id, 'completed', executeResult.message);
+              
+              // Store execution logs from step results
+              if (executeResult.stepResults && executeResult.stepResults.length > 0) {
+                const executionLogs: ExecutionLogs = {
+                  startTime: new Date(Date.now() - 5000).toISOString(), // Approximate start time
+                  endTime: new Date().toISOString(),
+                  exitCode: 0,
+                  logs: executeResult.stepResults.flatMap(step => {
+                    const logs: Array<{ timestamp: string; type: 'stdout' | 'stderr' | 'system'; message: string }> = [];
+                    
+                    if (step.stdout) {
+                      step.stdout.split('\n').filter(line => line.trim()).forEach(line => {
+                        logs.push({
+                          timestamp: new Date().toISOString(),
+                          type: 'stdout',
+                          message: line,
+                        });
+                      });
+                    }
+                    
+                    if (step.stderr) {
+                      step.stderr.split('\n').filter(line => line.trim()).forEach(line => {
+                        logs.push({
+                          timestamp: new Date().toISOString(),
+                          type: 'stderr',
+                          message: line,
+                        });
+                      });
+                    }
+                    
+                    return logs;
+                  }),
+                };
+                updateNodeExecutionLogs(node.id, executionLogs);
+              }
             } else {
               updateNodeStatus(node.id, 'error', executeResult.message);
+              
+              // Store error logs
+              if (executeResult.stepResults && executeResult.stepResults.length > 0) {
+                const executionLogs: ExecutionLogs = {
+                  startTime: new Date(Date.now() - 5000).toISOString(),
+                  endTime: new Date().toISOString(),
+                  exitCode: 1,
+                  logs: executeResult.stepResults.flatMap(step => {
+                    const logs: Array<{ timestamp: string; type: 'stdout' | 'stderr' | 'system'; message: string }> = [];
+                    
+                    if (step.error) {
+                      logs.push({
+                        timestamp: new Date().toISOString(),
+                        type: 'stderr',
+                        message: `Error: ${step.error}`,
+                      });
+                    }
+                    
+                    if (step.stdout) {
+                      step.stdout.split('\n').filter(line => line.trim()).forEach(line => {
+                        logs.push({
+                          timestamp: new Date().toISOString(),
+                          type: 'stdout',
+                          message: line,
+                        });
+                      });
+                    }
+                    
+                    if (step.stderr) {
+                      step.stderr.split('\n').filter(line => line.trim()).forEach(line => {
+                        logs.push({
+                          timestamp: new Date().toISOString(),
+                          type: 'stderr',
+                          message: line,
+                        });
+                      });
+                    }
+                    
+                    return logs;
+                  }),
+                };
+                updateNodeExecutionLogs(node.id, executionLogs);
+              }
             }
             break;
           }
@@ -505,7 +674,18 @@ export function PipelineToolbar() {
                             Files: {result.fileCount}
                           </p>
                         )}
-                        {result.outputPath && (
+                        {result.outputPaths && Object.keys(result.outputPaths).length > 0 ? (
+                          <div className="mt-1 space-y-0.5">
+                            <p className="text-xs text-muted-foreground font-medium">Outputs:</p>
+                            {Object.entries(result.outputPaths)
+                              .filter(([key]) => key !== 'outputPath') // Skip the generic outputPath if we have named ones
+                              .map(([varName, path]) => (
+                                <p key={varName} className="text-xs text-muted-foreground truncate pl-2" title={path}>
+                                  <span className="font-mono text-primary">{varName}</span>: {path}
+                                </p>
+                              ))}
+                          </div>
+                        ) : result.outputPath && (
                           <p className="text-xs text-muted-foreground truncate" title={result.outputPath}>
                             Output: {result.outputPath}
                           </p>

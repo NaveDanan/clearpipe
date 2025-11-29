@@ -6,6 +6,7 @@ import os from 'os';
 interface CheckDatasetRequest {
   source: 'local' | 's3' | 'gcs' | 'azure-blob' | 'minio' | 'clearml' | 'url';
   path: string;
+  pathMode?: 'direct' | 'folder-regex'; // 'direct' for single file, 'folder-regex' for folder + file pattern
   format: string | string[];
   // S3/MinIO specific
   bucket?: string;
@@ -102,14 +103,14 @@ function getAllFiles(dirPath: string, filePattern: RegExp, arrayOfFiles: string[
 export async function POST(request: NextRequest): Promise<NextResponse<CheckDatasetResponse>> {
   try {
     const body: CheckDatasetRequest = await request.json();
-    const { source, path: datasetPath, format, credentials, bucket, region, endpoint, container, datasetId, datasetProject } = body;
+    const { source, path: datasetPath, pathMode, format, credentials, bucket, region, endpoint, container, datasetId, datasetProject } = body;
 
     // Get file pattern from format
     const filePattern = formatToRegexPattern(format);
 
     // Handle local file source
     if (source === 'local') {
-      return handleLocalSource(datasetPath, filePattern);
+      return handleLocalSource(datasetPath, filePattern, pathMode);
     }
 
     // Handle AWS S3 source
@@ -161,7 +162,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<CheckData
 // ============================================================================
 function handleLocalSource(
   datasetPath: string,
-  filePattern: RegExp
+  filePattern: RegExp,
+  pathMode?: 'direct' | 'folder-regex'
 ): NextResponse<CheckDatasetResponse> {
   if (!datasetPath) {
     return NextResponse.json({
@@ -186,13 +188,48 @@ function handleLocalSource(
     });
   }
 
-  // Check if it's a directory
   const stat = fs.statSync(resolvedPath);
+
+  // Handle direct file path mode
+  if (pathMode === 'direct' || !stat.isDirectory()) {
+    if (stat.isDirectory()) {
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: 'Path is a directory. Use "Folder + File Format" mode for directories.',
+      });
+    }
+
+    // It's a file - check if it matches the format
+    const fileName = path.basename(resolvedPath);
+    const matches = filePattern.test(fileName);
+
+    if (!matches) {
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: `File does not match the selected format(s): ${fileName}`,
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      fileCount: 1,
+      files: [resolvedPath],
+      metadata: {
+        source: 'local',
+        path: resolvedPath,
+        pathMode: 'direct',
+      },
+    });
+  }
+
+  // Handle folder-regex mode (directory with file pattern matching)
   if (!stat.isDirectory()) {
     return NextResponse.json({
       success: false,
       fileCount: 0,
-      error: 'Path is not a directory',
+      error: 'Path is not a directory. Use "Direct File Path" mode for single files.',
     });
   }
 
@@ -206,6 +243,7 @@ function handleLocalSource(
     metadata: {
       source: 'local',
       path: resolvedPath,
+      pathMode: 'folder-regex',
     },
   });
 }

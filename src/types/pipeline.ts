@@ -12,6 +12,22 @@ export type ExperimentTracker = 'clearml' | 'mlflow' | 'wandb' | 'comet' | 'none
 // ML Frameworks
 export type MLFramework = 'pytorch' | 'tensorflow' | 'sklearn' | 'xgboost' | 'lightgbm' | 'custom';
 
+// Terminal output log entry
+export interface TerminalLogEntry {
+  timestamp: string;
+  type: 'stdout' | 'stderr' | 'system';
+  message: string;
+}
+
+// Execution logs for a node
+export interface ExecutionLogs {
+  startTime?: string;
+  endTime?: string;
+  duration?: number; // in milliseconds
+  exitCode?: number;
+  logs: TerminalLogEntry[];
+}
+
 // Base node data interface
 export interface BaseNodeData extends Record<string, unknown> {
   label: string;
@@ -19,6 +35,9 @@ export interface BaseNodeData extends Record<string, unknown> {
   status: NodeStatus;
   statusMessage?: string;
   lastUpdated?: string;
+  // Terminal output and execution logs
+  terminalOutput?: string[]; // Raw terminal output lines for backward compatibility
+  executionLogs?: ExecutionLogs; // Structured execution logs with timestamps and types
 }
 
 // Dataset node configuration
@@ -30,7 +49,9 @@ export interface DatasetNodeData extends BaseNodeData {
 export interface DatasetConfig {
   [key: string]: unknown;
   source: 'local' | 's3' | 'gcs' | 'azure-blob' | 'minio' | 'clearml' | 'url';
-  path: string;
+  pathMode?: 'direct' | 'folder-regex'; // 'direct' for single file, 'folder-regex' for folder + regex pattern
+  path: string; // For 'direct' mode: direct file path; for 'folder-regex': folder path
+  filePattern?: string; // Regex pattern for 'folder-regex' mode (e.g., ".*\.csv$")
   format: string | string[];
   // Reference to a saved connection from settings
   connectionId?: string;
@@ -68,6 +89,7 @@ export interface DatasetConfig {
     rows: number;
     sampleData?: Record<string, unknown>[];
   };
+  matchedFiles?: string[]; // For 'folder-regex' mode: list of matched files
 }
 
 // Versioning node configuration

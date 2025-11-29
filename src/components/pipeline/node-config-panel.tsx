@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import ToggleSwitch from '@/components/ui/toggle-switch';
+import { TerminalMonitor } from '@/components/ui/terminal-monitor';
 import {
   Select,
   SelectContent,
@@ -25,6 +26,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { ControlledSettingsDialog } from '@/components/ui/settings-dialog';
 import { dataFormatOptions } from '@/config/node-definitions';
 import type { DataFormatOption } from '@/config/node-definitions';
+import { getConnectedSourceNode, getAvailableOutputVariables } from '@/components/nodes/shared/utils';
 import type {
   PipelineNodeData,
   DatasetNodeData,
@@ -58,6 +60,7 @@ interface CollapsibleFormatSelectorProps {
 }
 
 function CollapsibleFormatSelector({ value, onChange }: CollapsibleFormatSelectorProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     'Tabular': true,
     'Columnar': false,
@@ -112,77 +115,176 @@ function CollapsibleFormatSelector({ value, onChange }: CollapsibleFormatSelecto
   return (
     <div className="space-y-2">
       <div className="border rounded-lg overflow-hidden">
-        <div className="bg-muted/50 px-3 py-2.5">
-          <div className="font-medium text-sm">{getDisplayText()}</div>
-          {selectedFormats.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-2">
-              {selectedFormats.map((format) => {
-                const option = dataFormatOptions.find((opt) => opt.value === format);
-                return (
-                  <Badge key={format} variant="default" className="text-xs">
-                    {option?.label || format}
-                    <button
-                      onClick={() => handleFormatChange(format)}
-                      className="ml-1 hover:opacity-75"
-                    >
-                      ✕
-                    </button>
-                  </Badge>
-                );
-              })}
-            </div>
-          )}
-        </div>
-        
-        <ScrollArea className="h-64 border-t">
-          <div className="p-2 space-y-1">
-            {Object.entries(formatsByCategory).map(([category, formats]) => (
-              <div key={category}>
-                <button
-                  onClick={() => toggleCategory(category)}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-accent rounded-md text-sm font-medium transition-colors"
-                >
-                  <ChevronDown
-                    className={`h-4 w-4 transition-transform ${
-                      expandedCategories[category] ? 'rotate-0' : '-rotate-90'
-                    }`}
-                  />
-                  <span className="text-muted-foreground text-xs uppercase tracking-wider flex-1 text-left">
-                    {category}
-                  </span>
-                  <Badge variant="secondary" className="text-xs">
-                    {formats.length}
-                  </Badge>
-                </button>
-                
-                {expandedCategories[category] && (
-                  <div className="pl-6 space-y-0.5">
-                    {formats.map((format) => (
-                      <button
-                        key={format.value}
-                        onClick={() => handleFormatChange(format.value)}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm transition-colors flex items-center gap-2 ${
-                          selectedFormats.includes(format.value)
-                            ? 'bg-primary text-primary-foreground font-medium'
-                            : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-                        }`}
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="w-full bg-muted/50 px-3 py-2.5 flex items-center justify-between hover:bg-muted/70 transition-colors"
+        >
+          <div className="flex-1 text-left">
+            <div className="font-medium text-sm">{getDisplayText()}</div>
+            {selectedFormats.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {selectedFormats.map((format) => {
+                  const option = dataFormatOptions.find((opt) => opt.value === format);
+                  return (
+                    <Badge key={format} variant="default" className="text-xs">
+                      {option?.label || format}
+                      <span
+                        role="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleFormatChange(format);
+                        }}
+                        className="ml-1 hover:opacity-75 cursor-pointer"
                       >
-                        <input
-                          type="checkbox"
-                          checked={selectedFormats.includes(format.value)}
-                          onChange={() => handleFormatChange(format.value)}
-                          className="h-4 w-4 cursor-pointer"
-                        />
-                        {format.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                        ✕
+                      </span>
+                    </Badge>
+                  );
+                })}
               </div>
-            ))}
+            )}
           </div>
-        </ScrollArea>
+          <ChevronDown
+            className={`h-4 w-4 ml-2 transition-transform flex-shrink-0 ${
+              isExpanded ? 'rotate-0' : '-rotate-90'
+            }`}
+          />
+        </button>
+        
+        {isExpanded && (
+          <ScrollArea className="h-64 border-t">
+            <div className="p-2 space-y-1">
+              {Object.entries(formatsByCategory).map(([category, formats]) => (
+                <div key={category}>
+                  <button
+                    onClick={() => toggleCategory(category)}
+                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-accent rounded-md text-sm font-medium transition-colors"
+                  >
+                    <ChevronDown
+                      className={`h-4 w-4 transition-transform ${
+                        expandedCategories[category] ? 'rotate-0' : '-rotate-90'
+                      }`}
+                    />
+                    <span className="text-muted-foreground text-xs uppercase tracking-wider flex-1 text-left">
+                      {category}
+                    </span>
+                    <Badge variant="secondary" className="text-xs">
+                      {formats.length}
+                    </Badge>
+                  </button>
+                  
+                  {expandedCategories[category] && (
+                    <div className="pl-6 space-y-0.5">
+                      {formats.map((format) => (
+                        <button
+                          key={format.value}
+                          onClick={() => handleFormatChange(format.value)}
+                          className={`w-full text-left px-3 py-1.5 rounded text-sm transition-colors flex items-center gap-2 ${
+                            selectedFormats.includes(format.value)
+                              ? 'bg-primary text-primary-foreground font-medium'
+                              : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedFormats.includes(format.value)}
+                            onChange={() => handleFormatChange(format.value)}
+                            className="h-4 w-4 cursor-pointer"
+                          />
+                          {format.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        )}
       </div>
+    </div>
+  );
+}
+
+// Intelligent Path Input Component with Output Variable Suggestions
+interface PathInputWithSuggestionsProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  nodeId?: string;
+}
+
+function PathInputWithSuggestions({ 
+  value, 
+  onChange, 
+  placeholder, 
+  nodeId 
+}: PathInputWithSuggestionsProps) {
+  const { nodes, edges } = usePipelineStore();
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [availableVars, setAvailableVars] = useState<Array<{ variable: string; label: string }>>([]);
+  
+  // Get available output variables from connected nodes
+  useEffect(() => {
+    if (nodeId) {
+      const connectedNode = getConnectedSourceNode(nodeId, nodes, edges);
+      if (connectedNode) {
+        const vars = getAvailableOutputVariables(connectedNode.data);
+        setAvailableVars(vars);
+      } else {
+        setAvailableVars([]);
+      }
+    }
+  }, [nodeId, nodes, edges]);
+  
+  const handleSelectVariable = (variable: string) => {
+    onChange(variable);
+    setShowSuggestions(false);
+  };
+  
+  return (
+    <div className="relative space-y-2">
+      <div className="relative">
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+        />
+        
+        {/* Show suggestions dropdown if there are available variables */}
+        {showSuggestions && availableVars.length > 0 && (
+          <div className="absolute z-10 w-full mt-1 border rounded-md bg-background shadow-lg">
+            <div className="p-2 space-y-1 max-h-48 overflow-y-auto">
+              <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                Available from connected node:
+              </div>
+              {availableVars.map((varInfo, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleSelectVariable(varInfo.variable)}
+                  className="w-full text-left px-2 py-1.5 rounded text-sm hover:bg-accent transition-colors flex items-center justify-between group"
+                >
+                  <div>
+                    <div className="font-mono text-xs text-primary">{varInfo.variable}</div>
+                    <div className="text-xs text-muted-foreground">{varInfo.label}</div>
+                  </div>
+                  <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity">
+                    Click to insert
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {availableVars.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          💡 Tip: Click the field above to see available outputs from the connected node
+        </p>
+      )}
     </div>
   );
 }
@@ -248,6 +350,7 @@ export function NodeConfigPanel() {
           <DatasetConfigPanel
             config={(nodeData as DatasetNodeData).config}
             onUpdate={handleUpdateConfig}
+            nodeId={selectedNodeId}
           />
         );
       case 'versioning':
@@ -262,6 +365,7 @@ export function NodeConfigPanel() {
           <ExecuteConfigPanel
             config={(nodeData as ExecuteNodeData).config}
             onUpdate={handleUpdateConfig}
+            nodeId={selectedNodeId}
           />
         );
       case 'training':
@@ -345,6 +449,27 @@ export function NodeConfigPanel() {
                   {nodeData.status}
                 </Badge>
               </div>
+              
+              {/* Terminal Output Monitor Section */}
+              <Separator />
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">Execution Output</Label>
+                {nodeData.executionLogs ? (
+                  <TerminalMonitor 
+                    logs={nodeData.executionLogs}
+                    isExecuting={nodeData.status === 'running'}
+                    maxHeight="h-80"
+                  />
+                ) : (
+                  <div className="border rounded-lg bg-muted/30 p-4">
+                    <p className="text-sm text-muted-foreground">
+                      {nodeData.status === 'running' 
+                        ? 'Waiting for execution output...' 
+                        : 'No execution output available. Execute this node to see logs here.'}
+                    </p>
+                  </div>
+                )}
+              </div>
             </TabsContent>
           </Tabs>
         </div>
@@ -357,6 +482,7 @@ export function NodeConfigPanel() {
 interface DatasetConfigPanelProps {
   config: DatasetConfig;
   onUpdate: (updates: Partial<DatasetConfig>) => void;
+  nodeId?: string;
 }
 
 // Provider display info for connections
@@ -368,7 +494,7 @@ const providerInfo: Record<string, { label: string; icon: string }> = {
   clearml: { label: 'ClearML', icon: '🟢' },
 };
 
-function DatasetConfigPanel({ config, onUpdate }: DatasetConfigPanelProps) {
+function DatasetConfigPanel({ config, onUpdate, nodeId }: DatasetConfigPanelProps) {
   const { connections, fetchConnections } = useSettingsStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   
@@ -499,22 +625,62 @@ function DatasetConfigPanel({ config, onUpdate }: DatasetConfigPanelProps) {
         </Select>
       </div>
       
+      {/* Path Mode Selector (only for local sources) */}
+      {(config.source === 'local' || !config.source) && (
+        <div className="space-y-2">
+          <Label>Path Type</Label>
+          <Select 
+            value={config.pathMode || 'direct'} 
+            onValueChange={(value) => onUpdate({ pathMode: value as 'direct' | 'folder-regex' })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select path type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="direct">Direct File Path</SelectItem>
+              <SelectItem value="folder-regex">Folder + Regex Pattern</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {config.pathMode === 'folder-regex' 
+              ? 'Specify a folder and regex pattern to match multiple files'
+              : 'Specify a direct path to a single file'}
+          </p>
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="path">
-          {config.source === 'url' ? 'URL' : 'Path'}
+          {config.source === 'url' 
+            ? 'URL'
+            : config.pathMode === 'folder-regex'
+              ? 'Folder Path'
+              : 'File Path'}
         </Label>
-        <Input
-          id="path"
+        <PathInputWithSuggestions
           value={config.path}
-          onChange={(e) => onUpdate({ path: e.target.value })}
+          onChange={(value) => onUpdate({ path: value })}
           placeholder={
             config.source === 'url' 
               ? 'e.g., https://example.com/data.csv'
-              : config.source === 'local'
-                ? 'e.g., /data/train.csv'
-                : 'e.g., bucket/path/to/data'
+              : config.pathMode === 'folder-regex'
+                ? 'e.g., /home/naved/Documents/pythonprojects/test-ml'
+                : config.source === 'local'
+                  ? 'e.g., /home/naved/Documents/pythonprojects/test-ml/synthetic_regression.csv or {{sourceNode.outputPath}}'
+                  : 'e.g., bucket/path/to/data'
           }
+          nodeId={nodeId}
         />
+        {config.pathMode === 'direct' && (
+          <p className="text-xs text-muted-foreground">
+            Direct path to a specific file (e.g., /path/to/file.csv)
+          </p>
+        )}
+        {config.pathMode === 'folder-regex' && (
+          <p className="text-xs text-muted-foreground">
+            Path to a folder containing data files. Files will be filtered by the format(s) selected below.
+          </p>
+        )}
       </div>
       
       <div className="space-y-2">
@@ -523,6 +689,11 @@ function DatasetConfigPanel({ config, onUpdate }: DatasetConfigPanelProps) {
           value={config.format} 
           onChange={(value) => onUpdate({ format: value })}
         />
+        <p className="text-xs text-muted-foreground">
+          {config.pathMode === 'folder-regex' 
+            ? 'Only files matching these formats will be included from the folder'
+            : 'Validate that the file matches one of these formats'}
+        </p>
       </div>
       
       {/* Show additional fields for cloud sources that are NOT using a saved connection */}
@@ -755,9 +926,10 @@ function VersioningConfigPanel({ config, onUpdate }: VersioningConfigPanelProps)
 interface ExecuteConfigPanelProps {
   config: ExecuteConfig;
   onUpdate: (updates: Partial<ExecuteConfig>) => void;
+  nodeId?: string;
 }
 
-function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
+function ExecuteConfigPanel({ config, onUpdate, nodeId }: ExecuteConfigPanelProps) {
   const { connections, fetchConnections } = useSettingsStore();
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [hoveredStepId, setHoveredStepId] = useState<string | null>(null);
@@ -1077,11 +1249,11 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
             <>
               <div className="space-y-2">
                 <Label htmlFor="scriptPath">Script Path</Label>
-                <Input
-                  id="scriptPath"
+                <PathInputWithSuggestions
                   value={editingStep.scriptPath || ''}
-                  onChange={(e) => handleUpdateStep(editingStep.id, { scriptPath: e.target.value })}
-                  placeholder="e.g., /path/to/preprocess.py"
+                  onChange={(value) => handleUpdateStep(editingStep.id, { scriptPath: value })}
+                  placeholder="e.g., /path/to/preprocess.py or {{sourceNode.outputPath}}"
+                  nodeId={nodeId}
                 />
                 <p className="text-xs text-muted-foreground">
                   Path to the Python script (.py file) that will be executed
