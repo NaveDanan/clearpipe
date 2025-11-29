@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { X, Settings, Database, GitBranch, Wand2, Cpu, BarChart3, FileText, ChevronDown, Plus, Pencil, Trash2, ArrowLeft, RefreshCw, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import ToggleSwitch from '@/components/ui/toggle-switch';
 import {
   Select,
   SelectContent,
@@ -757,8 +758,10 @@ interface ExecuteConfigPanelProps {
 }
 
 function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
+  const { connections, fetchConnections } = useSettingsStore();
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
   const [hoveredStepId, setHoveredStepId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [venvStatus, setVenvStatus] = useState<{
     checking: boolean;
     detected: boolean;
@@ -767,10 +770,33 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
     error?: string;
   }>({ checking: false, detected: false });
   
+  // Fetch connections on mount
+  useEffect(() => {
+    fetchConnections();
+  }, [fetchConnections]);
+  
+  // Get configured connections (those marked as configured)
+  const configuredConnections = connections.filter(conn => conn.isConfigured);
+  
   const editingStep = editingStepId ? config.steps.find(s => s.id === editingStepId) : null;
   
+  const handleDeleteStep = (stepId: string) => {
+    onUpdate({ steps: config.steps.filter(s => s.id !== stepId) });
+    if (editingStepId === stepId) {
+      setEditingStepId(null);
+    }
+  };
+  
+  const handleUpdateStep = useCallback((stepId: string, updates: Partial<ExecuteStep>) => {
+    onUpdate({
+      steps: config.steps.map(s => 
+        s.id === stepId ? { ...s, ...updates } : s
+      )
+    });
+  }, [config.steps, onUpdate]);
+  
   // Check venv when script path changes or when editing a step with local source
-  const checkVenv = useCallback(async (scriptPath: string, customVenvPath?: string) => {
+  const checkVenv = useCallback(async (scriptPath: string, customVenvPath?: string, autoUpdateStepId?: string) => {
     if (!scriptPath && !customVenvPath) {
       setVenvStatus({ checking: false, detected: false, error: 'No script path provided' });
       return;
@@ -795,9 +821,9 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
         error: data.error,
       });
       
-      // If auto-detected, update the step with the detected venv path
-      if (data.detected && editingStepId && !customVenvPath) {
-        handleUpdateStep(editingStepId, { 
+      // If auto-detected and we have a step to update, update only venv fields
+      if (data.detected && autoUpdateStepId && !customVenvPath) {
+        handleUpdateStep(autoUpdateStepId, { 
           venvPath: data.venvPath,
           venvMode: 'auto'
         });
@@ -809,35 +835,33 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
         error: (error as Error).message,
       });
     }
-  }, [editingStepId]);
+  }, [handleUpdateStep]);
   
   // Auto-check venv when editing step changes or script path is set
+  // Use a ref to track previous script path to avoid unnecessary re-checks
+  const prevScriptPathRef = useRef<string | undefined>(undefined);
+  
   useEffect(() => {
     if (editingStep && (editingStep.scriptSource === 'local' || !editingStep.scriptSource)) {
-      if (editingStep.venvMode === 'custom' && editingStep.venvPath) {
-        checkVenv(editingStep.scriptPath || '', editingStep.venvPath);
-      } else if (editingStep.scriptPath) {
-        checkVenv(editingStep.scriptPath);
-      } else {
-        setVenvStatus({ checking: false, detected: false });
+      const currentScriptPath = editingStep.scriptPath;
+      
+      // Only auto-check if script path actually changed
+      if (currentScriptPath !== prevScriptPathRef.current) {
+        prevScriptPathRef.current = currentScriptPath;
+        
+        if (editingStep.venvMode === 'custom' && editingStep.venvPath) {
+          checkVenv(currentScriptPath || '', editingStep.venvPath);
+        } else if (currentScriptPath) {
+          // Pass the step ID for auto-update, but only update venv fields
+          checkVenv(currentScriptPath, undefined, editingStep.id);
+        } else {
+          setVenvStatus({ checking: false, detected: false });
+        }
       }
+    } else {
+      prevScriptPathRef.current = undefined;
     }
   }, [editingStep?.id, editingStep?.scriptPath, editingStep?.venvPath, editingStep?.venvMode, editingStep?.scriptSource, checkVenv]);
-  
-  const handleDeleteStep = (stepId: string) => {
-    onUpdate({ steps: config.steps.filter(s => s.id !== stepId) });
-    if (editingStepId === stepId) {
-      setEditingStepId(null);
-    }
-  };
-  
-  const handleUpdateStep = (stepId: string, updates: Partial<ExecuteStep>) => {
-    onUpdate({
-      steps: config.steps.map(s => 
-        s.id === stepId ? { ...s, ...updates } : s
-      )
-    });
-  };
   
   const handleAddStep = () => {
     const newStep: ExecuteStep = {
@@ -916,6 +940,118 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
               placeholder="e.g., Data Cleaning"
             />
           </div>
+          
+          <div className="space-y-2">
+            <Label>Execution Mode</Label>
+            <Select 
+              value={editingStep.executionMode || 'local'} 
+              onValueChange={(value) => handleUpdateStep(editingStep.id, { executionMode: value as 'local' | 'cloud' })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select mode" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">Local</SelectItem>
+                <SelectItem value="cloud">Cloud</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {/* Cloud Connection Section */}
+          {editingStep.executionMode === 'cloud' && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <Label>Cloud Connection</Label>
+                <Select 
+                  value={editingStep.connectionId ? `conn:${editingStep.connectionId}` : '__none__'} 
+                  onValueChange={(value) => {
+                    if (value === '__add_source__') {
+                      setSettingsOpen(true);
+                      return;
+                    }
+                    if (value === '__none__') {
+                      handleUpdateStep(editingStep.id, { connectionId: undefined });
+                      return;
+                    }
+                    if (value.startsWith('conn:')) {
+                      const connectionId = value.replace('conn:', '');
+                      handleUpdateStep(editingStep.id, { connectionId });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select connection">
+                      {editingStep.connectionId ? (() => {
+                        const conn = connections.find(c => c.id === editingStep.connectionId);
+                        return conn ? `${providerInfo[conn.provider]?.icon || ''} ${conn.name}` : 'Select connection';
+                      })() : 'Select connection'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      <span className="text-muted-foreground">No connection selected</span>
+                    </SelectItem>
+                    
+                    {configuredConnections.length > 0 && (
+                      <>
+                        <SelectSeparator />
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                          Configured Connections
+                        </div>
+                        {configuredConnections.map((conn) => (
+                          <SelectItem key={conn.id} value={`conn:${conn.id}`}>
+                            <span className="flex items-center gap-2">
+                              <span>{providerInfo[conn.provider]?.icon}</span>
+                              <span>{conn.name}</span>
+                              <Badge variant="secondary" className="ml-auto text-[10px] px-1">
+                                {providerInfo[conn.provider]?.label}
+                              </Badge>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    
+                    <SelectSeparator />
+                    <SelectItem value="__add_source__">
+                      <span className="flex items-center gap-2 text-primary">
+                        <Plus className="h-4 w-4" />
+                        <span>Add source...</span>
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                {/* Show connection info when using a saved connection */}
+                {editingStep.connectionId && (
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        Credentials are managed in Settings → Connections
+                      </p>
+                      <Button 
+                        variant="link" 
+                        size="sm" 
+                        className="h-auto p-0 text-xs"
+                        onClick={() => setSettingsOpen(true)}
+                      >
+                        Manage
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
+                {!editingStep.connectionId && configuredConnections.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    No connections configured. Add a connection to use cloud execution.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+          
+          <Separator />
           
           <div className="space-y-2">
             <Label>Step Type</Label>
@@ -1100,57 +1236,89 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
             </p>
           </div>
           
-          <div className="space-y-2">
-            <Label htmlFor="dataSourceVariable">Data Source Variable</Label>
-            <Input
-              id="dataSourceVariable"
-              value={editingStep.dataSourceVariable || 'DATA_SOURCE'}
-              onChange={(e) => handleUpdateStep(editingStep.id, { dataSourceVariable: e.target.value })}
-              placeholder="DATA_SOURCE"
-            />
-            <p className="text-xs text-muted-foreground">
-              This variable in your script will be replaced with the input data path
-            </p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="useDataSourceVariable">Data Source Variable</Label>
+              <ToggleSwitch
+                id="useDataSourceVariable"
+                checked={editingStep.useDataSourceVariable !== false}
+                onChange={(checked) => handleUpdateStep(editingStep.id, { useDataSourceVariable: checked })}
+              />
+            </div>
+            {editingStep.useDataSourceVariable !== false && (
+              <>
+                <Input
+                  id="dataSourceVariable"
+                  value={editingStep.dataSourceVariable || 'DATA_SOURCE'}
+                  onChange={(e) => handleUpdateStep(editingStep.id, { dataSourceVariable: e.target.value })}
+                  placeholder="DATA_SOURCE"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This variable in your script will be replaced with the input data path
+                </p>
+              </>
+            )}
+            {editingStep.useDataSourceVariable === false && (
+              <p className="text-xs text-muted-foreground">
+                Data source variable replacement is disabled
+              </p>
+            )}
           </div>
           
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label>Output Variables</Label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleAddOutputVariable(editingStep.id)}
-                className="h-7 text-xs"
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                Add Output
-              </Button>
+              <Label htmlFor="useOutputVariables">Output Variables</Label>
+              <ToggleSwitch
+                id="useOutputVariables"
+                checked={editingStep.useOutputVariables !== false}
+                onChange={(checked) => handleUpdateStep(editingStep.id, { useOutputVariables: checked })}
+              />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Variable names that will contain output paths from your script
-            </p>
-            <div className="space-y-2">
-              {getOutputVariables(editingStep).map((varName, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input
-                    value={varName}
-                    onChange={(e) => handleUpdateOutputVariable(editingStep.id, index, e.target.value)}
-                    placeholder={`OUTPUT_PATH_${index + 1}`}
-                    className="flex-1"
-                  />
-                  {getOutputVariables(editingStep).length > 1 && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => handleRemoveOutputVariable(editingStep.id, index)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+            {editingStep.useOutputVariables !== false && (
+              <>
+                <div className="flex items-center justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleAddOutputVariable(editingStep.id)}
+                    className="h-7 text-xs"
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Add Output
+                  </Button>
                 </div>
-              ))}
-            </div>
+                <p className="text-xs text-muted-foreground">
+                  Variable names that will contain output paths from your script
+                </p>
+                <div className="space-y-2">
+                  {getOutputVariables(editingStep).map((varName, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <Input
+                        value={varName}
+                        onChange={(e) => handleUpdateOutputVariable(editingStep.id, index, e.target.value)}
+                        placeholder={`OUTPUT_PATH_${index + 1}`}
+                        className="flex-1"
+                      />
+                      {getOutputVariables(editingStep).length > 1 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={() => handleRemoveOutputVariable(editingStep.id, index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {editingStep.useOutputVariables === false && (
+              <p className="text-xs text-muted-foreground">
+                Output variable replacement is disabled
+              </p>
+            )}
           </div>
           
           <Separator />
@@ -1166,6 +1334,13 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
             />
           </div>
         </div>
+        
+        {/* Settings Dialog for adding connections */}
+        <ControlledSettingsDialog 
+          open={settingsOpen} 
+          onOpenChange={setSettingsOpen} 
+          defaultTab="connections" 
+        />
       </div>
     );
   }
@@ -1218,6 +1393,9 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
                         </Button>
                       </div>
                     )}
+                    <Badge variant={step.executionMode === 'cloud' ? 'secondary' : 'outline'}>
+                      {step.executionMode === 'cloud' ? '☁️ Cloud' : '💻 Local'}
+                    </Badge>
                     <Badge variant={step.enabled ? 'default' : 'secondary'}>
                       {step.type}
                     </Badge>

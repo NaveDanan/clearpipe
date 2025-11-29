@@ -241,7 +241,11 @@ export function PipelineToolbar() {
               }
             }
 
-            if (!inputPath) {
+            // Check if any enabled step requires data source variable
+            const enabledSteps = executeData.config.steps?.filter(s => s.enabled) || [];
+            const requiresInputPath = enabledSteps.some(step => step.useDataSourceVariable !== false);
+
+            if (!inputPath && requiresInputPath) {
               result = {
                 nodeId: node.id,
                 nodeLabel: nodeData.label,

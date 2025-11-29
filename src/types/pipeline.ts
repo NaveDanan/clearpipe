@@ -110,11 +110,18 @@ export interface ExecuteStep {
   type: 'normalize' | 'standardize' | 'encode' | 'impute' | 'feature_engineering' | 'custom';
   params: Record<string, unknown>;
   enabled: boolean;
+  // Execution mode: local or cloud
+  executionMode?: 'local' | 'cloud';
+  // Connection ID for cloud execution (reference to a saved connection from settings)
+  connectionId?: string;
   // Script execution configuration
   scriptSource?: 'local' | 'inline';
   scriptPath?: string; // Path to the .py file when scriptSource is 'local'
   inlineScript?: string; // Python code when scriptSource is 'inline'
+  // Variable configuration
+  useDataSourceVariable?: boolean; // Whether to use data source variable replacement (default: true)
   dataSourceVariable?: string; // Variable name to replace with the input data path (default: 'DATA_SOURCE')
+  useOutputVariables?: boolean; // Whether to use output variable replacement (default: true)
   outputVariables?: string[]; // Variable names that contain output paths (default: ['OUTPUT_PATH'])
   // Virtual environment configuration (for local scripts)
   venvPath?: string; // Path to the virtual environment folder

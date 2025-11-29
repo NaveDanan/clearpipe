@@ -133,7 +133,9 @@ interface ExecuteStep {
   scriptSource?: 'local' | 'inline';
   scriptPath?: string;
   inlineScript?: string;
+  useDataSourceVariable?: boolean; // Whether to use data source variable replacement
   dataSourceVariable?: string;
+  useOutputVariables?: boolean; // Whether to use output variable replacement
   outputVariables?: string[]; // Support multiple output variables
   // Virtual environment configuration
   venvPath?: string;
@@ -170,7 +172,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExecuteRe
       });
     }
 
-    if (!inputPath) {
+    // Check if input path is required (only when useDataSourceVariable is true or undefined)
+    const requiresInputPath = step.useDataSourceVariable !== false;
+    
+    if (!inputPath && requiresInputPath) {
       return NextResponse.json({
         success: false,
         error: 'No input path provided',
@@ -190,6 +195,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExecuteRe
     }
 
     const dataSourceVariable = step.dataSourceVariable || 'DATA_SOURCE';
+    const useDataSource = step.useDataSourceVariable !== false;
+    const useOutputVars = step.useOutputVariables !== false;
     const outputVariables = step.outputVariables && step.outputVariables.length > 0 
       ? step.outputVariables 
       : ['OUTPUT_PATH'];
@@ -237,33 +244,40 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExecuteRe
     }
 
     // Create a wrapper script that:
-    // 1. Sets up the data source variable
+    // 1. Optionally sets up the data source variable
     // 2. Runs the original script
-    // 3. Captures multiple output paths
+    // 3. Optionally captures multiple output paths
     const tempDir = os.tmpdir();
     const wrapperScriptPath = path.join(tempDir, `wrapper_${step.id}_${Date.now()}.py`);
     
-    // Escape paths for Python string
-    const escapedInputPath = inputPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    // Escape paths for Python string (use empty string if no input path)
+    const escapedInputPath = inputPath ? inputPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'") : '';
     
-    // Initialize all output variables to None
-    const outputVarInit = outputVariables.map(v => `${v} = None`).join('\n');
+    // Conditionally set up data source variable
+    const dataSourceSetup = useDataSource && inputPath
+      ? `# Set the data source variable\n${dataSourceVariable} = '${escapedInputPath}'`
+      : '# Data source variable disabled';
     
-    // Create the output printing logic for all variables
-    const outputPrintLogic = outputVariables.map(v => `
+    // Conditionally initialize output variables
+    const outputVarInit = useOutputVars
+      ? outputVariables.map(v => `${v} = None`).join('\n')
+      : '# Output variables disabled';
+    
+    // Conditionally create the output printing logic
+    const outputPrintLogic = useOutputVars
+      ? outputVariables.map(v => `
 if ${v} is not None:
     print(f"__OUTPUT__${v}__:{${v}}")
-else:
-    print(f"__OUTPUT__${v}__:${escapedInputPath}")
-`).join('\n');
+${escapedInputPath ? `else:\n    print(f"__OUTPUT__${v}__:${escapedInputPath}")` : ''}
+`).join('\n')
+      : '# Output variable printing disabled';
     
-    // Create wrapper script that sets the variable and captures outputs
+    // Create wrapper script
     const wrapperScript = `
 import sys
 import os
 
-# Set the data source variable
-${dataSourceVariable} = '${escapedInputPath}'
+${dataSourceSetup}
 
 # Initialize output variables
 ${outputVarInit}
@@ -294,22 +308,26 @@ ${outputPrintLogic}
         cwd: path.dirname(step.scriptPath || wrapperScriptPath),
       });
 
-      // Parse all output paths from stdout
+      // Parse all output paths from stdout (only if output variables are enabled)
       const outputPaths: string[] = [];
-      for (const varName of outputVariables) {
-        const regex = new RegExp(`__OUTPUT__${varName}__:(.+)`);
-        const match = stdout.match(regex);
-        if (match) {
-          outputPaths.push(match[1].trim());
-        } else {
-          outputPaths.push(inputPath); // Fallback to input path
+      if (useOutputVars) {
+        for (const varName of outputVariables) {
+          const regex = new RegExp(`__OUTPUT__${varName}__:(.+)`);
+          const match = stdout.match(regex);
+          if (match) {
+            outputPaths.push(match[1].trim());
+          } else if (inputPath) {
+            outputPaths.push(inputPath); // Fallback to input path
+          }
         }
       }
 
       // Clean stdout by removing all output markers
       let cleanStdout = stdout;
-      for (const varName of outputVariables) {
-        cleanStdout = cleanStdout.replace(new RegExp(`__OUTPUT__${varName}__:.+\\n?`, 'g'), '');
+      if (useOutputVars) {
+        for (const varName of outputVariables) {
+          cleanStdout = cleanStdout.replace(new RegExp(`__OUTPUT__${varName}__:.+\\n?`, 'g'), '');
+        }
       }
 
       // Clean up wrapper script
@@ -321,8 +339,8 @@ ${outputPrintLogic}
 
       return NextResponse.json({
         success: true,
-        outputPath: outputPaths[0] || inputPath, // Primary output for backward compatibility
-        outputPaths,
+        outputPath: outputPaths[0] || inputPath || undefined, // Primary output for backward compatibility
+        outputPaths: outputPaths.length > 0 ? outputPaths : (inputPath ? [inputPath] : []),
         stdout: cleanStdout.trim(),
         stderr: stderr.trim(),
         stepId: step.id,
