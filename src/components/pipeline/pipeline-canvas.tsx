@@ -248,8 +248,8 @@ function PipelineCanvasInner() {
       {/* Right Sidebar - Node Configuration */}
       <ResizablePanel
         side="right"
-        defaultWidth={380}
-        minWidth={380}
+        defaultWidth={480}
+        minWidth={480}
         maxWidth={550}
         title="Configuration"
         isOpen={isConfigPanelOpen}

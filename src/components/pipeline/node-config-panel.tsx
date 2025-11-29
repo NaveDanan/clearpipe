@@ -1339,7 +1339,7 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
                 onMouseEnter={() => setHoveredStepId(step.id)}
                 onMouseLeave={() => setHoveredStepId(null)}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <span className="font-medium">{index + 1}. {step.name}</span>
                     {step.scriptPath && (
@@ -1348,7 +1348,10 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-end gap-2">
+                    <Badge variant={step.executionMode === 'cloud' ? 'secondary' : 'outline'}>
+                      {step.executionMode === 'cloud' ? '☁️ Cloud' : '💻 Local'}
+                    </Badge>
                     {hoveredStepId === step.id && (
                       <div className="flex items-center gap-1">
                         <Button
@@ -1371,9 +1374,6 @@ function ExecuteConfigPanel({ config, onUpdate }: ExecuteConfigPanelProps) {
                         </Button>
                       </div>
                     )}
-                    <Badge variant={step.executionMode === 'cloud' ? 'secondary' : 'outline'}>
-                      {step.executionMode === 'cloud' ? '☁️ Cloud' : '💻 Local'}
-                    </Badge>
                   </div>
                 </div>
               </Card>

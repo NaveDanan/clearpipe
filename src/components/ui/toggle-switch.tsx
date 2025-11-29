@@ -119,9 +119,9 @@ const StyledWrapper = styled.div<{ $disabled?: boolean }>`
 
   /* Knob left gradient */
   .switch-label span:before {
-    background: linear-gradient(to right, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.08));
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.08));
     border-radius: 30px 6px 6px 30px;
-    box-shadow: -1px 0 3px rgba(0, 0, 0, 0.05) inset;
+    box-shadow: -1px 0 3px rgba(0, 0, 0, 0.08) inset;
     content: "";
     display: block;
     height: 10px;
@@ -134,14 +134,14 @@ const StyledWrapper = styled.div<{ $disabled?: boolean }>`
 
   /* Knob right gradient */
   .switch-label span:after {
-    background: linear-gradient(to left, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.08));
+    background: linear-gradient(to left, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.08));
     border-radius: 6px 30px 30px 6px;
-    box-shadow: 1px 0 3px rgba(0, 0, 0, 0.05) inset;
+    box-shadow: 1px 0 3px rgba(0, 0, 0, 0.08) inset;
     content: "";
     display: block;
     height: 10px;
     position: absolute;
-    right: px;
+    right: 2px;
     top: 1px;
     width: 10px;
     user-select: none;
@@ -204,6 +204,17 @@ const StyledWrapper = styled.div<{ $disabled?: boolean }>`
     .switch-label span:after {
       background: linear-gradient(to left, rgba(48, 48, 48, 0.4), rgba(34, 34, 34, 0.4));
       box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2) inset;
+    }
+        /* Knob left gradient */
+    .switch-label span:before {
+        background: linear-gradient(to right, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.08));
+        box-shadow: -1px 0 3px rgba(0, 0, 0, 0.08) inset;
+    }
+
+    /* Knob right gradient */
+    .switch-label span:after {
+        background: linear-gradient(to left, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.08));
+        box-shadow: 1px 0 3px rgba(0, 0, 0, 0.08) inset;
     }
 
     .switch-check:checked + .switch-label:before {
