@@ -445,10 +445,12 @@ export function NodeConfigPanel() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Status</Label>
-                <Badge variant={nodeData.status === 'completed' ? 'default' : 'secondary'}>
-                  {nodeData.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Label>Status</Label>
+                  <Badge variant={nodeData.status === 'completed' ? 'default' : 'secondary'}>
+                    {nodeData.status}
+                  </Badge>
+                </div>
               </div>
               
               {/* Terminal Output Monitor Section */}
