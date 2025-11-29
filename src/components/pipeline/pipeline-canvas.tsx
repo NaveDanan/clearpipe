@@ -13,8 +13,10 @@ import {
   Connection,
   EdgeChange,
   IsValidConnection,
+  Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { Unlink } from 'lucide-react';
 
 import { nodeTypes } from '@/components/nodes';
 import { NodePalette } from '@/components/pipeline/node-palette';
@@ -24,12 +26,20 @@ import { ResizablePanel } from '@/components/ui/resizable-panel';
 import { usePipelineStore } from '@/stores/pipeline-store';
 import { PipelineNodeData } from '@/types/pipeline';
 
+// Edge context menu state
+interface EdgeContextMenu {
+  edgeId: string;
+  x: number;
+  y: number;
+}
+
 function PipelineCanvasInner() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, getZoom } = useReactFlow();
   const [zoom, setZoom] = useState<number>(0.8);
   const [showZoomIndicator, setShowZoomIndicator] = useState(false);
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [edgeContextMenu, setEdgeContextMenu] = useState<EdgeContextMenu | null>(null);
 
   // Update zoom level and show indicator
   const handleZoom = useCallback(() => {
@@ -155,7 +165,46 @@ function PipelineCanvasInner() {
 
   const onPaneClick = useCallback(() => {
     selectNode(null);
+    setEdgeContextMenu(null);
   }, [selectNode]);
+
+  // Handle right-click on edge to show context menu
+  const onEdgeContextMenu = useCallback(
+    (event: React.MouseEvent, edge: Edge) => {
+      event.preventDefault();
+      setEdgeContextMenu({
+        edgeId: edge.id,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    },
+    []
+  );
+
+  // Delete edge (unlink connection)
+  const handleDeleteEdge = useCallback(() => {
+    if (edgeContextMenu) {
+      const newEdges = usePipelineStore.getState().edges.filter(
+        (edge) => edge.id !== edgeContextMenu.edgeId
+      );
+      usePipelineStore.setState({ edges: newEdges, isDirty: true });
+      setEdgeContextMenu(null);
+    }
+  }, [edgeContextMenu]);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setEdgeContextMenu(null);
+    };
+
+    if (edgeContextMenu) {
+      document.addEventListener('click', handleClickOutside);
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [edgeContextMenu]);
 
   const handleConfigPanelCollapse = useCallback(() => {
     selectNode(null);
@@ -212,6 +261,7 @@ function PipelineCanvasInner() {
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
           onPaneClick={onPaneClick}
+          onEdgeContextMenu={onEdgeContextMenu}
           nodeTypes={nodeTypes}
           connectionMode={ConnectionMode.Strict}
           isValidConnection={isValidConnection}
@@ -241,6 +291,26 @@ function PipelineCanvasInner() {
         {showZoomIndicator && (
           <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-neutral-500 text-white px-3 py-1 rounded-md text-sm font-medium shadow-lg pointer-events-none z-10">
             {(zoom * 100).toFixed(0)}%
+          </div>
+        )}
+
+        {/* Edge Context Menu */}
+        {edgeContextMenu && (
+          <div
+            className="absolute z-50 bg-popover border border-border rounded-md shadow-md p-1"
+            style={{
+              left: edgeContextMenu.x,
+              top: edgeContextMenu.y,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={handleDeleteEdge}
+              className="flex items-center justify-center w-8 h-8 rounded-sm hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              title="Unlink connection"
+            >
+              <Unlink className="w-4 h-4 text-red-500" />
+            </button>
           </div>
         )}
       </div>
