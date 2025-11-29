@@ -239,7 +239,7 @@ function PipelineCanvasInner() {
 
         {/* Zoom Indicator - Positioned outside ReactFlow for better visibility */}
         {showZoomIndicator && (
-          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-neutral-800 text-white px-3 py-1 rounded-md text-sm font-medium shadow-lg pointer-events-none z-10">
+          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-neutral-500 text-white px-3 py-1 rounded-md text-sm font-medium shadow-lg pointer-events-none z-10">
             {(zoom * 100).toFixed(0)}%
           </div>
         )}
