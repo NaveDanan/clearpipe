@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { spawn } from 'child_process';
+import * as path from 'path';
 import { connectionsRepository, secretsRepository } from '@/lib/db/repositories';
 
 interface ClearMLDataset {
@@ -12,6 +14,12 @@ interface ClearMLDataset {
   fileCount?: number;
   totalSize?: number;
   status?: string;
+}
+
+interface DatasetFile {
+  path: string;
+  size?: number;
+  type: 'file' | 'folder';
 }
 
 interface ClearMLCredentials {
@@ -270,6 +278,145 @@ async function listDatasets(credentials: ClearMLCredentials): Promise<ClearMLDat
   }
 }
 
+// Execute Python wrapper command
+function executePythonWrapper(
+  credentials: ClearMLCredentials,
+  args: string[]
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  return new Promise((resolve) => {
+    const scriptPath = path.join(process.cwd(), 'scripts', 'clearml_wrapper.py');
+    
+    const fullArgs = [
+      'run', 'python', scriptPath,
+      ...args,
+      '--api-host', credentials.apiHost,
+      '--web-host', credentials.webHost,
+      '--files-host', credentials.filesHost,
+      '--access-key', credentials.accessKey,
+      '--secret-key', credentials.secretKey,
+    ];
+    
+    console.log('Executing Python wrapper:', 'uv', fullArgs.slice(0, 5).join(' '), '...');
+    
+    const proc = spawn('uv', fullArgs, {
+      shell: true,
+      windowsHide: true,
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    proc.stderr?.on('data', (data) => {
+      stderr += data.toString();
+    });
+    
+    proc.on('close', (code) => {
+      console.log('Python wrapper exit code:', code);
+      if (stderr) {
+        console.log('Python wrapper stderr:', stderr.substring(0, 500));
+      }
+      
+      try {
+        // Extract JSON between markers if present
+        let jsonStr = stdout;
+        const startMarker = '---CLEARML_JSON_START---';
+        const endMarker = '---CLEARML_JSON_END---';
+        
+        const startIdx = stdout.indexOf(startMarker);
+        const endIdx = stdout.indexOf(endMarker);
+        
+        if (startIdx !== -1 && endIdx !== -1) {
+          jsonStr = stdout.substring(startIdx + startMarker.length, endIdx).trim();
+        } else if (startIdx !== -1) {
+          // End marker might be truncated, extract from start marker to end
+          jsonStr = stdout.substring(startIdx + startMarker.length).trim();
+          // Try to find the end of the JSON object
+          const lastBrace = jsonStr.lastIndexOf('}');
+          if (lastBrace !== -1) {
+            jsonStr = jsonStr.substring(0, lastBrace + 1);
+          }
+        }
+        
+        const result = JSON.parse(jsonStr);
+        if (result.success) {
+          resolve({ success: true, data: result });
+        } else {
+          resolve({ success: false, error: result.error || 'Unknown error' });
+        }
+      } catch (parseError) {
+        console.error('Failed to parse Python wrapper output:', stdout.substring(0, 500));
+        resolve({ success: false, error: `Failed to parse output: ${stdout.substring(0, 200)}` });
+      }
+    });
+    
+    proc.on('error', (err) => {
+      console.error('Python wrapper spawn error:', err);
+      resolve({ success: false, error: `Spawn error: ${err.message}` });
+    });
+  });
+}
+
+// Get files in a ClearML dataset using the Python wrapper
+async function getDatasetFiles(credentials: ClearMLCredentials, datasetId: string): Promise<DatasetFile[]> {
+  try {
+    const result = await executePythonWrapper(credentials, [
+      'info',
+      '--dataset-id', datasetId,
+    ]);
+    
+    if (!result.success || !result.data) {
+      console.error('Failed to get dataset info:', result.error);
+      return [];
+    }
+    
+    const files: DatasetFile[] = [];
+    const seenFolders = new Set<string>();
+    
+    // The Python wrapper returns files as an array of { path, size }
+    const fileList = result.data.files || [];
+    
+    for (const file of fileList) {
+      const filePath = file.path;
+      
+      // Add intermediate folders
+      const parts = filePath.split('/');
+      let currentPath = '';
+      for (let i = 0; i < parts.length - 1; i++) {
+        currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+        if (!seenFolders.has(currentPath)) {
+          seenFolders.add(currentPath);
+          files.push({
+            path: currentPath,
+            type: 'folder',
+          });
+        }
+      }
+      
+      // Add the file itself
+      files.push({
+        path: filePath,
+        size: file.size,
+        type: 'file',
+      });
+    }
+    
+    // Sort: folders first, then by path
+    return files.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'folder' ? -1 : 1;
+      }
+      return a.path.localeCompare(b.path);
+    });
+  } catch (error) {
+    console.error('Error getting ClearML dataset files:', error);
+    throw error;
+  }
+}
+
 // POST /api/versioning/datasets - List or manage ClearML datasets
 export async function POST(request: NextRequest) {
   try {
@@ -297,6 +444,18 @@ export async function POST(request: NextRequest) {
       case 'list': {
         const datasets = await listDatasets(credentials);
         return NextResponse.json({ datasets });
+      }
+      
+      case 'get_files': {
+        const { datasetId } = body;
+        if (!datasetId) {
+          return NextResponse.json(
+            { error: 'datasetId is required for get_files action' },
+            { status: 400 }
+          );
+        }
+        const files = await getDatasetFiles(credentials, datasetId);
+        return NextResponse.json({ files });
       }
       
       default:

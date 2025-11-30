@@ -17,6 +17,7 @@ interface CheckDatasetRequest {
   // ClearML specific
   datasetId?: string;
   datasetProject?: string;
+  connectionId?: string; // Reference to saved connection
   // Credentials
   credentials?: {
     // AWS S3 / MinIO
@@ -103,7 +104,7 @@ function getAllFiles(dirPath: string, filePattern: RegExp, arrayOfFiles: string[
 export async function POST(request: NextRequest): Promise<NextResponse<CheckDatasetResponse>> {
   try {
     const body: CheckDatasetRequest = await request.json();
-    const { source, path: datasetPath, pathMode, format, credentials, bucket, region, endpoint, container, datasetId, datasetProject } = body;
+    const { source, path: datasetPath, pathMode, format, credentials, bucket, region, endpoint, container, datasetId, datasetProject, connectionId } = body;
 
     // Get file pattern from format
     const filePattern = formatToRegexPattern(format);
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<CheckData
 
     // Handle ClearML Dataset source
     if (source === 'clearml') {
-      return handleClearMLSource(datasetId, datasetProject, credentials, filePattern);
+      return handleClearMLSource(datasetId, datasetProject, credentials, filePattern, connectionId);
     }
 
     // Handle URL source
@@ -622,7 +623,8 @@ async function handleClearMLSource(
   datasetId: string | undefined,
   datasetProject: string | undefined,
   credentials: CheckDatasetRequest['credentials'],
-  filePattern: RegExp
+  filePattern: RegExp,
+  connectionId?: string
 ): Promise<NextResponse<CheckDatasetResponse>> {
   if (!datasetId && !datasetProject) {
     return NextResponse.json({
@@ -632,6 +634,82 @@ async function handleClearMLSource(
     });
   }
 
+  // If we have a connectionId, use that to get credentials via the versioning datasets API
+  if (connectionId) {
+    try {
+      // Use the versioning datasets API to list and check dataset info
+      const infoResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/versioning/datasets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'list',
+          connectionId,
+        }),
+      });
+      
+      if (!infoResponse.ok) {
+        const error = await infoResponse.json();
+        return NextResponse.json({
+          success: false,
+          fileCount: 0,
+          error: error.error || 'Failed to fetch ClearML datasets',
+        });
+      }
+      
+      const result = await infoResponse.json();
+      const datasets = result.datasets || [];
+      
+      // Find the specific dataset if datasetId is provided
+      if (datasetId) {
+        const dataset = datasets.find((d: any) => d.id === datasetId);
+        if (dataset) {
+          return NextResponse.json({
+            success: true,
+            fileCount: dataset.fileCount || 0,
+            metadata: {
+              source: 'clearml',
+              datasetId: dataset.id,
+              datasetName: dataset.name,
+              datasetProject: dataset.project,
+              version: dataset.version,
+            },
+          });
+        }
+      }
+      
+      // Return info about all datasets in project
+      if (datasetProject) {
+        const projectDatasets = datasets.filter((d: any) => 
+          d.project === datasetProject || (d as any).projectName === datasetProject
+        );
+        const totalFiles = projectDatasets.reduce((sum: number, d: any) => sum + (d.fileCount || 0), 0);
+        
+        return NextResponse.json({
+          success: true,
+          fileCount: totalFiles,
+          metadata: {
+            source: 'clearml',
+            datasetProject,
+            datasetCount: projectDatasets.length,
+          },
+        });
+      }
+      
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: 'ClearML dataset not found',
+      });
+    } catch (error) {
+      return NextResponse.json({
+        success: false,
+        fileCount: 0,
+        error: `ClearML connection failed: ${(error as Error).message}`,
+      });
+    }
+  }
+
+  // Fallback to direct credentials (old method)
   if (!credentials?.clearmlApiHost || !credentials?.clearmlAccessKey || !credentials?.clearmlSecretKey) {
     return NextResponse.json({
       success: false,

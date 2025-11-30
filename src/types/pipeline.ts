@@ -48,6 +48,8 @@ export interface DatasetNodeData extends BaseNodeData {
 
 export interface DatasetConfig {
   [key: string]: unknown;
+  // Execution mode: local or cloud
+  executionMode?: 'local' | 'cloud';
   source: 'local' | 's3' | 'gcs' | 'azure-blob' | 'minio' | 'clearml' | 'url';
   pathMode?: 'direct' | 'folder-regex'; // 'direct' for single file, 'folder-regex' for folder + regex pattern
   path: string; // For 'direct' mode: direct file path; for 'folder-regex': folder path
@@ -61,9 +63,14 @@ export interface DatasetConfig {
   endpoint?: string; // For MinIO custom endpoint
   // Azure specific
   container?: string;
-  // ClearML specific
+  // ClearML specific - dataset selection
   datasetId?: string;
   datasetProject?: string;
+  selectedDatasetId?: string;
+  selectedDataset?: ClearMLDatasetInfo;
+  selectedFilePath?: string; // Selected file/folder path within the ClearML dataset
+  clearmlAction?: 'list' | 'download' | 'use'; // 'list' = browse, 'download' = fetch to local, 'use' = get mutable copy
+  outputPath?: string; // Local path for downloaded dataset
   // Credentials for all cloud providers
   credentials?: {
     // AWS S3 / MinIO
