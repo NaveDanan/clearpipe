@@ -40,6 +40,15 @@ export interface PipelineRow {
   updated_at: string;
 }
 
+export interface TeamMemberRow {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  avatar_url?: string;
+  invited_at: string;
+}
+
 // ============================================================================
 // Secrets Repository
 // ============================================================================
@@ -493,57 +502,71 @@ export const pipelinesRepository = {
   async hasAccess(pipelineId: string, userId?: string, shareToken?: string): Promise<boolean> {
     const supabase = await createClient();
     
-    // Try to get by share token first (for public access)
-    if (shareToken) {
-      console.log('hasAccess: Checking share token for pipeline', pipelineId);
-      
-      try {
-        const { data, error } = await supabase
-          .from('pipelines')
-          .select('id, is_public, share_token')
-          .eq('id', pipelineId)
-          .single();
-        
-        if (error) {
-          console.log('hasAccess: Query error:', error.message, error.code);
-          // If columns don't exist, try without them
-          if (error.message?.includes('column') || error.code === 'PGRST204') {
-            console.log('hasAccess: Sharing columns may not exist in database');
-          }
-        } else {
-          console.log('hasAccess: Pipeline data:', { 
-            id: data?.id, 
-            is_public: data?.is_public, 
-            share_token_matches: data?.share_token === shareToken
-          });
-          
-          if (data && data.is_public && data.share_token === shareToken) {
-            console.log('hasAccess: Share token valid, granting access');
-            return true;
-          }
-        }
-      } catch (err) {
-        console.error('hasAccess: Unexpected error:', err);
-      }
-    }
-    
-    // Check owner access
-    if (userId) {
-      const { data } = await supabase
+    // First, try to get the pipeline - RLS will allow access if:
+    // 1. User owns it (user_id matches)
+    // 2. Pipeline is public (is_public = true)
+    // 3. User is in shared_with array
+    try {
+      const { data, error } = await supabase
         .from('pipelines')
-        .select('id, user_id, shared_with')
+        .select('id, user_id, is_public, share_token, shared_with')
         .eq('id', pipelineId)
-        .single();
+        .maybeSingle();
       
-      if (data) {
-        // Owner has access
-        if (data.user_id === userId) return true;
-        // Shared user has access
-        if (data.shared_with?.includes(userId)) return true;
+      if (error) {
+        console.log('hasAccess: Query error:', error.message, error.code);
+        return false;
       }
+      
+      if (!data) {
+        console.log('hasAccess: Pipeline not found or not accessible');
+        return false;
+      }
+      
+      console.log('hasAccess: Pipeline found:', { 
+        id: data.id, 
+        is_public: data.is_public,
+        hasShareToken: !!data.share_token,
+        owner: data.user_id
+      });
+      
+      // If checking with a share token, validate it matches for public pipelines
+      if (shareToken) {
+        if (data.is_public && data.share_token === shareToken) {
+          console.log('hasAccess: Share token valid, granting access');
+          return true;
+        }
+        // Share token provided but doesn't match - deny
+        if (data.share_token !== shareToken) {
+          console.log('hasAccess: Share token mismatch');
+          return false;
+        }
+      }
+      
+      // Check if user is the owner
+      if (userId && data.user_id === userId) {
+        console.log('hasAccess: User is owner');
+        return true;
+      }
+      
+      // Check if user is in shared_with list
+      if (userId && data.shared_with?.includes(userId)) {
+        console.log('hasAccess: User is in shared_with list');
+        return true;
+      }
+      
+      // If pipeline is public and no share token was required, allow read access
+      if (data.is_public) {
+        console.log('hasAccess: Pipeline is public');
+        return true;
+      }
+      
+      console.log('hasAccess: No access granted');
+      return false;
+    } catch (err) {
+      console.error('hasAccess: Unexpected error:', err);
+      return false;
     }
-    
-    return false;
   },
 
   async upsert(data: { 
@@ -586,6 +609,139 @@ export const pipelinesRepository = {
     
     const { error, count } = await supabase
       .from('pipelines')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', user.id);
+    
+    if (error) throw error;
+    return (count ?? 0) > 0;
+  },
+};
+
+// ============================================================================
+// Team Members Repository
+// ============================================================================
+export const teamMembersRepository = {
+  async getAll(): Promise<TeamMemberRow[]> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) throw new Error('Unauthorized');
+    
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('invited_at', { ascending: false });
+    
+    if (error) {
+      // If table doesn't exist, return empty array
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        console.warn('team_members table does not exist yet');
+        return [];
+      }
+      throw error;
+    }
+    return data || [];
+  },
+
+  async getById(id: string): Promise<TeamMemberRow | null> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) throw new Error('Unauthorized');
+    
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return null;
+      }
+      throw error;
+    }
+    return data;
+  },
+
+  async getByEmail(email: string): Promise<TeamMemberRow | null> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) throw new Error('Unauthorized');
+    
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('*')
+      .eq('user_id', user.id)
+      .ilike('email', email)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') {
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return null;
+      }
+      throw error;
+    }
+    return data;
+  },
+
+  async create(data: { name: string; email: string; avatarUrl?: string }): Promise<TeamMemberRow> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) throw new Error('Unauthorized');
+    
+    const { data: member, error } = await supabase
+      .from('team_members')
+      .insert({
+        user_id: user.id,
+        name: data.name,
+        email: data.email,
+        avatar_url: data.avatarUrl || null,
+        invited_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return member;
+  },
+
+  async update(id: string, data: Partial<{ name: string; email: string; avatarUrl: string }>): Promise<TeamMemberRow | null> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) throw new Error('Unauthorized');
+    
+    const updateData: Record<string, unknown> = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.avatarUrl !== undefined) updateData.avatar_url = data.avatarUrl;
+    
+    const { data: member, error } = await supabase
+      .from('team_members')
+      .update(updateData)
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select()
+      .single();
+    
+    if (error && error.code !== 'PGRST116') throw error;
+    return member;
+  },
+
+  async delete(id: string): Promise<boolean> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) throw new Error('Unauthorized');
+    
+    const { error, count } = await supabase
+      .from('team_members')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);

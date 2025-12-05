@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { teamMembersRepository } from '@/lib/db/repositories';
+import { teamMembersRepository } from '@/lib/db/supabase-repositories';
 
 // DELETE /api/team-members/[id] - Remove a team member
 export async function DELETE(

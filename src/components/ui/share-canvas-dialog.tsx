@@ -169,7 +169,11 @@ export function ShareCanvasDialog({ open, onOpenChange }: ShareCanvasDialogProps
       const res = await fetch('/api/team-members', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ 
+          email,
+          pipelineId: currentPipeline?.id,
+          shareUrl: shareUrl,
+        }),
       });
 
       if (res.ok) {
