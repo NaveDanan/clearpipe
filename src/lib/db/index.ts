@@ -10,6 +10,7 @@ export interface DatabaseSchema {
   secrets: SecretRow[];
   connections: ConnectionRow[];
   pipelines: PipelineRow[];
+  teamMembers: TeamMemberRow[];
 }
 
 export interface SecretRow {
@@ -38,8 +39,20 @@ export interface PipelineRow {
   nodes: string; // JSON string
   edges: string; // JSON string
   version: string;
+  shareToken?: string; // Secure token for sharing
+  ownerId?: string; // Owner's user ID
+  sharedWith?: string[]; // Array of user IDs with access
+  isPublic?: boolean; // Whether pipeline is publicly accessible via shareToken
   created_at: string;
   updated_at: string;
+}
+
+export interface TeamMemberRow {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  invitedAt: string;
 }
 
 // Default empty database
@@ -47,6 +60,7 @@ const defaultDatabase: DatabaseSchema = {
   secrets: [],
   connections: [],
   pipelines: [],
+  teamMembers: [],
 };
 
 // Read database from file

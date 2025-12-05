@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { secretsRepository } from '@/lib/db/repositories';
+import { secretsRepository } from '@/lib/db/supabase-repositories';
 
 interface RouteParams {
   params: Promise<{ id: string }>;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { secretsRepository } from '@/lib/db/repositories';
+import { secretsRepository } from '@/lib/db/supabase-repositories';
 
 // GET /api/secrets - Get all secrets (values are masked)
 export async function GET(request: NextRequest) {

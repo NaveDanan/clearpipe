@@ -53,7 +53,7 @@ interface PipelineState {
   // Pipeline operations
   fetchPipelines: () => Promise<void>;
   savePipeline: (name: string, description?: string) => Promise<void>;
-  loadPipeline: (pipelineId: string) => Promise<void>;
+  loadPipeline: (pipelineId: string, shareToken?: string) => Promise<void>;
   createNewPipeline: () => void;
   deletePipeline: (pipelineId: string) => Promise<void>;
   exportPipeline: () => string;
@@ -363,16 +363,30 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
         savedPipelines: updatedPipelines,
         isDirty: false,
       });
+
+      // Update URL to include pipeline ID (for sharing)
+      if (typeof window !== 'undefined') {
+        const newUrl = `/canvas/${savedPipeline.id}`;
+        // Only update if we're not already on this URL
+        if (window.location.pathname !== newUrl) {
+          window.history.replaceState(null, '', newUrl);
+        }
+      }
+
+      return savedPipeline;
     } catch (error) {
       console.error('Error saving pipeline:', error);
       throw error;
     }
   },
 
-  loadPipeline: async (pipelineId) => {
+  loadPipeline: async (pipelineId, shareToken) => {
     set({ isLoading: true });
     try {
-      const response = await fetch(`/api/pipelines/${pipelineId}`);
+      const url = shareToken 
+        ? `/api/pipelines/${pipelineId}?token=${shareToken}`
+        : `/api/pipelines/${pipelineId}`;
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to load pipeline');
       
       const pipeline = await response.json();
@@ -385,6 +399,17 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
         isConfigPanelOpen: false,
         isDirty: false,
       });
+
+      // Update URL to include pipeline ID (but preserve token if present)
+      if (typeof window !== 'undefined') {
+        const currentUrl = new URL(window.location.href);
+        const newPath = `/canvas/${pipelineId}`;
+        if (currentUrl.pathname !== newPath) {
+          // Preserve the token in the URL if it exists
+          const tokenParam = shareToken ? `?token=${shareToken}` : '';
+          window.history.replaceState(null, '', `${newPath}${tokenParam}`);
+        }
+      }
     } catch (error) {
       console.error('Error loading pipeline:', error);
       // Fallback to local state
@@ -413,6 +438,11 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
       isConfigPanelOpen: false,
       isDirty: false,
     });
+
+    // Navigate to home/new canvas
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      window.history.pushState(null, '', '/');
+    }
   },
 
   deletePipeline: async (pipelineId) => {

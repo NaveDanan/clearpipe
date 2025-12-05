@@ -37,8 +37,9 @@ import {
 import { usePipelineStore } from '@/stores/pipeline-store';
 import type { PipelineNodeData, PipelineNode, PipelineEdge, DatasetNodeData, ExecuteNodeData, VersioningNodeData, ExecutionLogs } from '@/types/pipeline';
 import { checkDatasetConnection, runExecute, executeVersioning } from '@/components/nodes';
-import { SettingsDialog } from '@/components/ui/settings-dialog';
+import { UserDropdown } from '@/components/ui/user-dropdown';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CollaboratorAvatars } from '@/components/collaboration/collaborator-avatars';
 
 interface NodeExecutionResult {
   nodeId: string;
@@ -845,8 +846,11 @@ export function PipelineToolbar() {
 
       <div className="h-6 w-px bg-border" />
 
-      {/* Settings */}
-      <SettingsDialog />
+      {/* Online Collaborators */}
+      <CollaboratorAvatars />
+
+      {/* User Profile */}
+      <UserDropdown />
 
       {/* More Options */}
       <DropdownMenu>

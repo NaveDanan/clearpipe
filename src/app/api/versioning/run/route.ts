@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
-import { connectionsRepository, secretsRepository } from '@/lib/db/repositories';
+import { connectionsRepository, secretsRepository } from '@/lib/db/supabase-repositories';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -40,7 +40,8 @@ async function getCredentials(
         return null;
       }
       
-      const config = JSON.parse(connection.config);
+      // Config is already a JSON object from Supabase (JSONB)
+      const config = connection.config as Record<string, string>;
       
       // Resolve secrets directly
       const accessKey = await resolveSecret(config.accessKeySecretId);

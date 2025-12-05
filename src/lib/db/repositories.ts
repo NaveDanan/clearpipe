@@ -1,8 +1,8 @@
 import { readDatabase, writeDatabase } from './index';
-import type { SecretRow, ConnectionRow, PipelineRow } from './index';
+import type { SecretRow, ConnectionRow, PipelineRow, TeamMemberRow } from './index';
 
 // Re-export types
-export type { SecretRow, ConnectionRow, PipelineRow };
+export type { SecretRow, ConnectionRow, PipelineRow, TeamMemberRow };
 
 // Generate unique ID
 const generateId = () => {
@@ -162,6 +162,17 @@ export const connectionsRepository = {
 // ============================================================================
 // Pipelines Repository
 // ============================================================================
+
+// Generate a secure share token (URL-safe, random string)
+const generateShareToken = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  for (let i = 0; i < 32; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+};
+
 export const pipelinesRepository = {
   async getAll(): Promise<PipelineRow[]> {
     const db = readDatabase();
@@ -175,12 +186,18 @@ export const pipelinesRepository = {
     return db.pipelines.find(p => p.id === id);
   },
 
+  async getByShareToken(shareToken: string): Promise<PipelineRow | undefined> {
+    const db = readDatabase();
+    return db.pipelines.find(p => p.shareToken === shareToken && p.isPublic);
+  },
+
   async create(data: { 
     name: string; 
     description?: string; 
     nodes: unknown[]; 
     edges: unknown[]; 
     version?: string;
+    ownerId?: string;
   }): Promise<PipelineRow> {
     const db = readDatabase();
     const now = new Date().toISOString();
@@ -192,6 +209,10 @@ export const pipelinesRepository = {
       nodes: JSON.stringify(data.nodes),
       edges: JSON.stringify(data.edges),
       version: data.version || '1.0.0',
+      shareToken: generateShareToken(),
+      ownerId: data.ownerId,
+      sharedWith: [],
+      isPublic: false,
       created_at: now,
       updated_at: now,
     };
@@ -208,6 +229,8 @@ export const pipelinesRepository = {
     nodes: unknown[]; 
     edges: unknown[]; 
     version: string;
+    isPublic: boolean;
+    sharedWith: string[];
   }>): Promise<PipelineRow | undefined> {
     const db = readDatabase();
     const index = db.pipelines.findIndex(p => p.id === id);
@@ -222,11 +245,110 @@ export const pipelinesRepository = {
     if (data.nodes !== undefined) pipeline.nodes = JSON.stringify(data.nodes);
     if (data.edges !== undefined) pipeline.edges = JSON.stringify(data.edges);
     if (data.version !== undefined) pipeline.version = data.version;
+    if (data.isPublic !== undefined) pipeline.isPublic = data.isPublic;
+    if (data.sharedWith !== undefined) pipeline.sharedWith = data.sharedWith;
     pipeline.updated_at = now;
     
     writeDatabase(db);
     
     return pipeline;
+  },
+
+  async regenerateShareToken(id: string): Promise<string | undefined> {
+    const db = readDatabase();
+    const index = db.pipelines.findIndex(p => p.id === id);
+    
+    if (index === -1) return undefined;
+    
+    const newToken = generateShareToken();
+    db.pipelines[index].shareToken = newToken;
+    db.pipelines[index].updated_at = new Date().toISOString();
+    
+    writeDatabase(db);
+    
+    return newToken;
+  },
+
+  async setPublicAccess(id: string, isPublic: boolean): Promise<PipelineRow | undefined> {
+    const db = readDatabase();
+    const index = db.pipelines.findIndex(p => p.id === id);
+    
+    if (index === -1) return undefined;
+    
+    db.pipelines[index].isPublic = isPublic;
+    db.pipelines[index].updated_at = new Date().toISOString();
+    
+    // Generate share token if not exists
+    if (isPublic && !db.pipelines[index].shareToken) {
+      db.pipelines[index].shareToken = generateShareToken();
+    }
+    
+    writeDatabase(db);
+    
+    return db.pipelines[index];
+  },
+
+  async addSharedUser(id: string, userId: string): Promise<boolean> {
+    const db = readDatabase();
+    const index = db.pipelines.findIndex(p => p.id === id);
+    
+    if (index === -1) return false;
+    
+    if (!db.pipelines[index].sharedWith) {
+      db.pipelines[index].sharedWith = [];
+    }
+    
+    if (!db.pipelines[index].sharedWith!.includes(userId)) {
+      db.pipelines[index].sharedWith!.push(userId);
+      db.pipelines[index].updated_at = new Date().toISOString();
+      writeDatabase(db);
+    }
+    
+    return true;
+  },
+
+  async removeSharedUser(id: string, userId: string): Promise<boolean> {
+    const db = readDatabase();
+    const index = db.pipelines.findIndex(p => p.id === id);
+    
+    if (index === -1) return false;
+    
+    if (db.pipelines[index].sharedWith) {
+      db.pipelines[index].sharedWith = db.pipelines[index].sharedWith!.filter(id => id !== userId);
+      db.pipelines[index].updated_at = new Date().toISOString();
+      writeDatabase(db);
+    }
+    
+    return true;
+  },
+
+  async hasAccess(pipelineId: string, userId?: string, shareToken?: string): Promise<boolean> {
+    const db = readDatabase();
+    const pipeline = db.pipelines.find(p => p.id === pipelineId);
+    
+    if (!pipeline) return false;
+    
+    // Check if pipeline is public and token matches
+    if (pipeline.isPublic && shareToken && pipeline.shareToken === shareToken) {
+      return true;
+    }
+    
+    // Check if user is owner
+    if (userId && pipeline.ownerId === userId) {
+      return true;
+    }
+    
+    // Check if user is in sharedWith list
+    if (userId && pipeline.sharedWith?.includes(userId)) {
+      return true;
+    }
+    
+    // If no owner is set (legacy pipelines), allow access to authenticated users
+    if (!pipeline.ownerId && userId) {
+      return true;
+    }
+    
+    return false;
   },
 
   async upsert(data: { 
@@ -236,6 +358,7 @@ export const pipelinesRepository = {
     nodes: unknown[]; 
     edges: unknown[]; 
     version?: string;
+    ownerId?: string;
   }): Promise<PipelineRow> {
     if (data.id) {
       const existing = await this.getById(data.id);
@@ -253,6 +376,88 @@ export const pipelinesRepository = {
     if (index === -1) return false;
     
     db.pipelines.splice(index, 1);
+    writeDatabase(db);
+    
+    return true;
+  },
+};
+
+// ============================================================================
+// Team Members Repository
+// ============================================================================
+export const teamMembersRepository = {
+  async getAll(): Promise<TeamMemberRow[]> {
+    const db = readDatabase();
+    // Handle case where teamMembers doesn't exist yet
+    if (!db.teamMembers) {
+      db.teamMembers = [];
+      writeDatabase(db);
+    }
+    return [...db.teamMembers].sort((a, b) => 
+      new Date(b.invitedAt).getTime() - new Date(a.invitedAt).getTime()
+    );
+  },
+
+  async getById(id: string): Promise<TeamMemberRow | undefined> {
+    const db = readDatabase();
+    if (!db.teamMembers) return undefined;
+    return db.teamMembers.find(m => m.id === id);
+  },
+
+  async getByEmail(email: string): Promise<TeamMemberRow | undefined> {
+    const db = readDatabase();
+    if (!db.teamMembers) return undefined;
+    return db.teamMembers.find(m => m.email.toLowerCase() === email.toLowerCase());
+  },
+
+  async create(data: { name: string; email: string; avatarUrl?: string }): Promise<TeamMemberRow> {
+    const db = readDatabase();
+    
+    // Ensure teamMembers array exists
+    if (!db.teamMembers) {
+      db.teamMembers = [];
+    }
+    
+    const member: TeamMemberRow = {
+      id: generateId(),
+      name: data.name,
+      email: data.email,
+      avatarUrl: data.avatarUrl,
+      invitedAt: new Date().toISOString(),
+    };
+    
+    db.teamMembers.push(member);
+    writeDatabase(db);
+    
+    return member;
+  },
+
+  async update(id: string, data: Partial<{ name: string; email: string; avatarUrl: string }>): Promise<TeamMemberRow | undefined> {
+    const db = readDatabase();
+    if (!db.teamMembers) return undefined;
+    
+    const index = db.teamMembers.findIndex(m => m.id === id);
+    if (index === -1) return undefined;
+    
+    const member = db.teamMembers[index];
+    
+    if (data.name !== undefined) member.name = data.name;
+    if (data.email !== undefined) member.email = data.email;
+    if (data.avatarUrl !== undefined) member.avatarUrl = data.avatarUrl;
+    
+    writeDatabase(db);
+    
+    return member;
+  },
+
+  async delete(id: string): Promise<boolean> {
+    const db = readDatabase();
+    if (!db.teamMembers) return false;
+    
+    const index = db.teamMembers.findIndex(m => m.id === id);
+    if (index === -1) return false;
+    
+    db.teamMembers.splice(index, 1);
     writeDatabase(db);
     
     return true;

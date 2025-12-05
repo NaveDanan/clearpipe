@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectionsRepository } from '@/lib/db/repositories';
-import type { ConnectionRow } from '@/lib/db/repositories';
+import { connectionsRepository } from '@/lib/db/supabase-repositories';
+import type { ConnectionRow } from '@/lib/db/supabase-repositories';
 
 // Helper to parse connection row and include resolved secret references
 function parseConnection(row: ConnectionRow | undefined | null) {
   if (!row) return null;
   
-  const config = JSON.parse(row.config);
+  // Config is already a JSON object from Supabase (JSONB)
+  const config = row.config || {};
   
   return {
     id: row.id,
     name: row.name,
     provider: row.provider,
-    isConfigured: row.is_configured === 1,
+    isConfigured: row.is_configured,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     ...config,

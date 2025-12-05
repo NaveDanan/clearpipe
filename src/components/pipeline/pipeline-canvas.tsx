@@ -25,6 +25,11 @@ import { PipelineToolbar } from '@/components/pipeline/pipeline-toolbar';
 import { ResizablePanel } from '@/components/ui/resizable-panel';
 import { usePipelineStore } from '@/stores/pipeline-store';
 import { PipelineNodeData } from '@/types/pipeline';
+import { 
+  CollaborationProvider, 
+  useCollaboration 
+} from '@/components/collaboration';
+import { CollaboratorCursors } from '@/components/collaboration/collaborator-cursors';
 
 // Edge context menu state
 interface EdgeContextMenu {
@@ -40,6 +45,19 @@ function PipelineCanvasInner() {
   const [showZoomIndicator, setShowZoomIndicator] = useState(false);
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [edgeContextMenu, setEdgeContextMenu] = useState<EdgeContextMenu | null>(null);
+  
+  // Collaboration cursor tracking
+  const { updateCursorPosition } = useCollaboration();
+  
+  // Track mouse movement on canvas for collaboration
+  const handleMouseMove = useCallback((event: React.MouseEvent) => {
+    if (reactFlowWrapper.current) {
+      const rect = reactFlowWrapper.current.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * 100;
+      const y = ((event.clientY - rect.top) / rect.height) * 100;
+      updateCursorPosition(x, y);
+    }
+  }, [updateCursorPosition]);
 
   // Update zoom level and show indicator
   const handleZoom = useCallback(() => {
@@ -249,7 +267,11 @@ function PipelineCanvasInner() {
       </ResizablePanel>
 
       {/* Main Canvas */}
-      <div className="flex-1 h-full" ref={reactFlowWrapper}>
+      <div 
+        className="flex-1 h-full relative" 
+        ref={reactFlowWrapper}
+        onMouseMove={handleMouseMove}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -313,6 +335,9 @@ function PipelineCanvasInner() {
             </button>
           </div>
         )}
+        
+        {/* Collaborator Cursors */}
+        <CollaboratorCursors />
       </div>
 
       {/* Right Sidebar - Node Configuration */}
@@ -332,9 +357,14 @@ function PipelineCanvasInner() {
 }
 
 export function PipelineCanvas() {
+  // Get current pipeline ID from store
+  const currentPipeline = usePipelineStore((state) => state.currentPipeline);
+  
   return (
     <ReactFlowProvider>
-      <PipelineCanvasInner />
+      <CollaborationProvider pipelineId={currentPipeline?.id || undefined}>
+        <PipelineCanvasInner />
+      </CollaborationProvider>
     </ReactFlowProvider>
   );
 }

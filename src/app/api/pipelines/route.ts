@@ -1,17 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { pipelinesRepository } from '@/lib/db/repositories';
-import type { PipelineRow } from '@/lib/db/repositories';
+import { pipelinesRepository } from '@/lib/db/supabase-repositories';
+import type { PipelineRow } from '@/lib/db/supabase-repositories';
 
 // Helper to parse pipeline row
 function parsePipeline(row: PipelineRow | undefined | null) {
   if (!row) return null;
   
+  // Nodes and edges are already JSON arrays from Supabase (JSONB)
   return {
     id: row.id,
     name: row.name,
     description: row.description,
-    nodes: JSON.parse(row.nodes),
-    edges: JSON.parse(row.edges),
+    nodes: row.nodes || [],
+    edges: row.edges || [],
     version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

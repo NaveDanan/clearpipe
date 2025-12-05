@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import * as path from 'path';
-import { connectionsRepository, secretsRepository } from '@/lib/db/repositories';
+import { connectionsRepository, secretsRepository } from '@/lib/db/supabase-repositories';
 
 interface ClearMLDataset {
   id: string;
@@ -65,7 +65,8 @@ async function getCredentials(
         provider: connection.provider,
       });
       
-      const config = JSON.parse(connection.config);
+      // Config is already a JSON object from Supabase (JSONB)
+      const config = connection.config as Record<string, string>;
       console.log('Connection config:', {
         apiHost: config.apiHost,
         accessKeySecretId: config.accessKeySecretId,

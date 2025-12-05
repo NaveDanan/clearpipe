@@ -1,8 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectionsRepository, secretsRepository } from '@/lib/db/repositories';
+import { connectionsRepository, secretsRepository } from '@/lib/db/supabase-repositories';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+// Type for connection config with all possible secret reference fields
+interface ConnectionConfig {
+  // AWS / MinIO / ClearML
+  accessKeySecretId?: string;
+  secretKeySecretId?: string;
+  region?: string;
+  bucket?: string;
+  // GCP
+  projectId?: string;
+  serviceAccountKeySecretId?: string;
+  // Azure
+  subscriptionId?: string;
+  tenantId?: string;
+  clientId?: string;
+  accountName?: string;
+  container?: string;
+  clientSecretSecretId?: string;
+  connectionStringSecretId?: string;
+  accountKeySecretId?: string;
+  sasTokenSecretId?: string;
+  // MinIO
+  endpoint?: string;
+  // ClearML
+  apiHost?: string;
+  webHost?: string;
+  filesHost?: string;
 }
 
 // GET /api/connections/[id]/credentials - Get resolved credentials for a connection
@@ -19,7 +47,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       );
     }
     
-    const config = JSON.parse(connection.config);
+    // Config is already a JSON object from Supabase (JSONB)
+    const config = (connection.config || {}) as ConnectionConfig;
     const credentials: Record<string, string> = {};
     
     // Resolve all secret references in the config

@@ -1,21 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { pipelinesRepository } from '@/lib/db/repositories';
-import type { PipelineRow } from '@/lib/db/repositories';
+import { pipelinesRepository } from '@/lib/db/supabase-repositories';
+import type { PipelineRow } from '@/lib/db/supabase-repositories';
+import { createServerClient } from '@supabase/ssr';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+// Helper to get current user
+async function getCurrentUser(request: NextRequest) {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+
+  const supabase = createServerClient(
+    supabaseUrl,
+    supabaseAnonKey,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll();
+        },
+        setAll() {},
+      },
+    }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
 }
 
 // Helper to parse pipeline row
 function parsePipeline(row: PipelineRow | undefined | null) {
   if (!row) return null;
   
+  // Nodes and edges are already JSON arrays from Supabase (JSONB)
   return {
     id: row.id,
     name: row.name,
     description: row.description,
-    nodes: JSON.parse(row.nodes),
-    edges: JSON.parse(row.edges),
+    nodes: row.nodes || [],
+    edges: row.edges || [],
     version: row.version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -26,7 +54,21 @@ function parsePipeline(row: PipelineRow | undefined | null) {
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const pipeline = await pipelinesRepository.getById(id);
+    const shareToken = request.nextUrl.searchParams.get('token');
+    const user = await getCurrentUser(request);
+    
+    // Check if user has access via ownership, shared access, or valid share token
+    const hasAccess = await pipelinesRepository.hasAccess(id, user?.id, shareToken || undefined);
+    
+    if (!hasAccess) {
+      return NextResponse.json(
+        { error: 'Access denied' },
+        { status: 403 }
+      );
+    }
+    
+    // Access granted, get the pipeline using public method
+    const pipeline = await pipelinesRepository.getByIdPublic(id);
     
     if (!pipeline) {
       return NextResponse.json(
