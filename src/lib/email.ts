@@ -12,10 +12,6 @@
 //    - {{pipeline_name}} - name of the pipeline being shared
 // 4. Get your Public Key, Service ID, and Template ID from EmailJS dashboard
 
-const EMAILJS_PUBLIC_KEY = process.env.EMAILJS_PUBLIC_KEY;
-const EMAILJS_SERVICE_ID = process.env.EMAILJS_SERVICE_ID;
-const EMAILJS_TEMPLATE_ID = process.env.EMAILJS_TEMPLATE_ID;
-
 interface SendInviteEmailParams {
   to: string;
   inviterName: string;
@@ -31,9 +27,25 @@ export async function sendInviteEmail({
   pipelineName,
   shareUrl,
 }: SendInviteEmailParams): Promise<{ success: boolean; error?: string; notConfigured?: boolean }> {
+  // Debug: Log environment variable status (not values for security)
+  console.log('EmailJS Config Check:', {
+    hasPublicKey: !!process.env.EMAILJS_PUBLIC_KEY,
+    hasServiceId: !!process.env.EMAILJS_SERVICE_ID,
+    hasTemplateId: !!process.env.EMAILJS_TEMPLATE_ID,
+  });
+
+  // Get env vars at runtime (not at module load time for edge compatibility)
+  const publicKey = process.env.EMAILJS_PUBLIC_KEY;
+  const serviceId = process.env.EMAILJS_SERVICE_ID;
+  const templateId = process.env.EMAILJS_TEMPLATE_ID;
+
   // Check if EmailJS is configured
-  if (!EMAILJS_PUBLIC_KEY || !EMAILJS_SERVICE_ID || !EMAILJS_TEMPLATE_ID) {
-    console.warn('EmailJS not configured. Set EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID, and EMAILJS_TEMPLATE_ID in .env.local');
+  if (!publicKey || !serviceId || !templateId) {
+    console.warn('EmailJS not configured. Missing:', {
+      EMAILJS_PUBLIC_KEY: !publicKey,
+      EMAILJS_SERVICE_ID: !serviceId,
+      EMAILJS_TEMPLATE_ID: !templateId,
+    });
     return { 
       success: false, 
       notConfigured: true,
@@ -60,12 +72,11 @@ export async function sendInviteEmail({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'origin': 'http://localhost', // Required for CORS
       },
       body: JSON.stringify({
-        service_id: EMAILJS_SERVICE_ID,
-        template_id: EMAILJS_TEMPLATE_ID,
-        user_id: EMAILJS_PUBLIC_KEY,
+        service_id: serviceId,
+        template_id: templateId,
+        user_id: publicKey,
         template_params: {
           // Standard EmailJS template variables
           to_name: toName,
@@ -116,10 +127,10 @@ export async function sendInviteEmail({
 // Export a function for client-side use (optional, for direct browser usage)
 export function getEmailJSConfig() {
   return {
-    publicKey: EMAILJS_PUBLIC_KEY,
-    serviceId: EMAILJS_SERVICE_ID,
-    templateId: EMAILJS_TEMPLATE_ID,
-    isConfigured: !!(EMAILJS_PUBLIC_KEY && EMAILJS_SERVICE_ID && EMAILJS_TEMPLATE_ID),
+    publicKey: process.env.EMAILJS_PUBLIC_KEY,
+    serviceId: process.env.EMAILJS_SERVICE_ID,
+    templateId: process.env.EMAILJS_TEMPLATE_ID,
+    isConfigured: !!(process.env.EMAILJS_PUBLIC_KEY && process.env.EMAILJS_SERVICE_ID && process.env.EMAILJS_TEMPLATE_ID),
   };
 }
 
