@@ -24,3 +24,15 @@ export {
   copyFile,
 } from './storage';
 export type { StorageBucket } from './storage';
+
+// Realtime collaboration utilities
+export {
+  PipelineRealtimeManager,
+  realtimeService,
+  getUserColor,
+} from './realtime';
+export type { 
+  UserPresence, 
+  CursorBroadcast, 
+  PipelineChangeBroadcast 
+} from './realtime';

@@ -12,6 +12,7 @@ import {
   Panel,
   Connection,
   EdgeChange,
+  NodeChange,
   IsValidConnection,
   Edge,
 } from '@xyflow/react';
@@ -30,6 +31,7 @@ import {
   useCollaboration 
 } from '@/components/collaboration';
 import { CollaboratorCursors } from '@/components/collaboration/collaborator-cursors';
+import { useAuth } from '@/lib/supabase/use-auth';
 
 // Edge context menu state
 interface EdgeContextMenu {
@@ -46,8 +48,8 @@ function PipelineCanvasInner() {
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [edgeContextMenu, setEdgeContextMenu] = useState<EdgeContextMenu | null>(null);
   
-  // Collaboration cursor tracking
-  const { updateCursorPosition } = useCollaboration();
+  // Collaboration cursor tracking and broadcasting
+  const { updateCursorPosition, broadcastPipelineChange, isConnected } = useCollaboration();
   
   // Track mouse movement on canvas for collaboration
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
@@ -124,6 +126,55 @@ function PipelineCanvasInner() {
     isConfigPanelOpen,
   } = usePipelineStore();
 
+  // Wrap onNodesChange to broadcast changes to collaborators
+  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    onNodesChange(changes);
+    
+    // Only broadcast meaningful changes (position, dimensions, etc.)
+    // Filter out selection changes which are local-only
+    const broadcastableChanges = changes.filter(
+      change => change.type === 'position' || change.type === 'dimensions'
+    );
+    
+    if (broadcastableChanges.length > 0 && isConnected) {
+      broadcastPipelineChange('nodes', broadcastableChanges);
+    }
+  }, [onNodesChange, broadcastPipelineChange, isConnected]);
+
+  // Wrap onEdgesChange to broadcast changes to collaborators
+  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+    onEdgesChange(changes);
+    
+    // Broadcast edge changes (add, remove, etc.)
+    if (changes.length > 0 && isConnected) {
+      broadcastPipelineChange('edges', changes);
+    }
+  }, [onEdgesChange, broadcastPipelineChange, isConnected]);
+
+  // Wrap onConnect to broadcast new connections
+  const handleConnect = useCallback((connection: Connection) => {
+    onConnect(connection);
+    
+    if (isConnected) {
+      broadcastPipelineChange('edges', [{ type: 'add', item: connection }]);
+    }
+  }, [onConnect, broadcastPipelineChange, isConnected]);
+
+  // Wrap addNode to broadcast new nodes
+  const handleAddNode = useCallback((type: PipelineNodeData['type'], position: { x: number; y: number }) => {
+    const newNodeId = addNode(type, position);
+    
+    if (isConnected) {
+      // Get the newly added node and broadcast it
+      const newNode = usePipelineStore.getState().nodes.find(n => n.id === newNodeId);
+      if (newNode) {
+        broadcastPipelineChange('node_add', newNode);
+      }
+    }
+    
+    return newNodeId;
+  }, [addNode, broadcastPipelineChange, isConnected]);
+
   // Validate connection: source must have output (right), target must have input (left)
   const isValidConnection = useCallback((connection: Connection | any) => {
     // Prevent connections from source to source or target to target
@@ -164,9 +215,9 @@ function PipelineCanvasInner() {
         y: event.clientY,
       });
 
-      addNode(type, position);
+      handleAddNode(type, position);
     },
-    [screenToFlowPosition, addNode]
+    [screenToFlowPosition, handleAddNode]
   );
 
   const onDragStart = (event: React.DragEvent, nodeType: string) => {
@@ -275,9 +326,9 @@ function PipelineCanvasInner() {
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onConnect={handleConnect}
           onReconnect={onReconnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
@@ -360,9 +411,18 @@ export function PipelineCanvas() {
   // Get current pipeline ID from store
   const currentPipeline = usePipelineStore((state) => state.currentPipeline);
   
+  // Get current user info for collaboration
+  const { user } = useAuth();
+  
   return (
     <ReactFlowProvider>
-      <CollaborationProvider pipelineId={currentPipeline?.id || undefined}>
+      <CollaborationProvider 
+        pipelineId={currentPipeline?.id || undefined}
+        userId={user?.id}
+        userName={user?.name || user?.email?.split('@')[0]}
+        userEmail={user?.email}
+        userAvatar={user?.avatarUrl}
+      >
         <PipelineCanvasInner />
       </CollaborationProvider>
     </ReactFlowProvider>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Cursor,
   CursorBody,
@@ -17,6 +17,25 @@ interface CollaboratorCursorsProps {
 export function CollaboratorCursors({ containerRef }: CollaboratorCursorsProps) {
   const otherCollaborators = useOtherCollaborators();
   const [visibleCursors, setVisibleCursors] = useState<Map<string, boolean>>(new Map());
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Track container size for cursor positioning
+  useEffect(() => {
+    const updateSize = () => {
+      const container = containerRef?.current || wrapperRef.current?.parentElement;
+      if (container) {
+        setContainerSize({
+          width: container.clientWidth,
+          height: container.clientHeight,
+        });
+      }
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, [containerRef]);
 
   // Hide cursors that haven't been updated recently
   useEffect(() => {
@@ -44,15 +63,17 @@ export function CollaboratorCursors({ containerRef }: CollaboratorCursorsProps) 
   );
 
   if (collaboratorsWithCursors.length === 0) {
-    return null;
+    return <div ref={wrapperRef} className="hidden" />;
   }
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden">
+    <div ref={wrapperRef} className="pointer-events-none absolute inset-0 z-50 overflow-hidden">
       {collaboratorsWithCursors.map((collaborator) => (
         <CollaboratorCursor 
           key={collaborator.id} 
           collaborator={collaborator}
+          containerWidth={containerSize.width}
+          containerHeight={containerSize.height}
         />
       ))}
     </div>
@@ -61,36 +82,42 @@ export function CollaboratorCursors({ containerRef }: CollaboratorCursorsProps) 
 
 interface CollaboratorCursorProps {
   collaborator: Collaborator;
+  containerWidth: number;
+  containerHeight: number;
 }
 
-function CollaboratorCursor({ collaborator }: CollaboratorCursorProps) {
+function CollaboratorCursor({ collaborator, containerWidth, containerHeight }: CollaboratorCursorProps) {
   const { cursor, name, color } = collaborator;
   
   if (!cursor) return null;
+
+  // Convert percentage position to pixels
+  const x = (cursor.x / 100) * containerWidth;
+  const y = (cursor.y / 100) * containerHeight;
 
   // Get first name or username
   const displayName = name.split(' ')[0] || name;
 
   return (
     <div
-      className="absolute transition-all duration-75 ease-out"
+      className="absolute transition-all duration-100 ease-out"
       style={{
-        left: cursor.x,
-        top: cursor.y,
+        left: x,
+        top: y,
         transform: 'translate(-2px, -2px)',
       }}
     >
       <Cursor>
         <CursorPointer style={{ color }} />
         <CursorBody 
-          className="shadow-sm"
+          className="shadow-sm border"
           style={{ 
             backgroundColor: `${color}15`,
             color: color,
             borderColor: `${color}30`,
           }}
         >
-          <CursorName className="font-medium">{displayName}</CursorName>
+          <CursorName className="font-medium text-xs">{displayName}</CursorName>
         </CursorBody>
       </Cursor>
     </div>
