@@ -25,7 +25,7 @@ import { NodeConfigPanel } from '@/components/pipeline/node-config-panel';
 import { PipelineToolbar } from '@/components/pipeline/pipeline-toolbar';
 import { ResizablePanel } from '@/components/ui/resizable-panel';
 import { usePipelineStore } from '@/stores/pipeline-store';
-import { PipelineNodeData } from '@/types/pipeline';
+import { PipelineNodeData, PipelineNode } from '@/types/pipeline';
 import { 
   CollaborationProvider, 
   useCollaboration 
