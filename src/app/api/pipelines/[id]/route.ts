@@ -1,36 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pipelinesRepository } from '@/lib/db/supabase-repositories';
 import type { PipelineRow } from '@/lib/db/supabase-repositories';
-import { createServerClient } from '@supabase/ssr';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+import { createClient } from '@/lib/supabase/server';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
-}
-
-// Helper to get current user
-async function getCurrentUser(request: NextRequest) {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return null;
-  }
-
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
 }
 
 // Helper to parse pipeline row
@@ -55,7 +29,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
     const shareToken = request.nextUrl.searchParams.get('token');
-    const user = await getCurrentUser(request);
+    
+    // Get current user using the standard server client
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
     
     // Check if user has access via ownership, shared access, or valid share token
     const hasAccess = await pipelinesRepository.hasAccess(id, user?.id, shareToken || undefined);

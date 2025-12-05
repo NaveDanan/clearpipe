@@ -1,32 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@/lib/supabase/server';
 import { pipelinesRepository } from '@/lib/db/supabase-repositories';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-// Helper to get current user
-async function getCurrentUser(request: NextRequest) {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return null;
-  }
-
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
-}
 
 // GET /api/pipelines/[id]/share - Get share settings for a pipeline
 export async function GET(
@@ -35,22 +9,24 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const user = await getCurrentUser(request);
-
-    const pipeline = await pipelinesRepository.getById(id);
-    if (!pipeline) {
+    
+    // Get current user using the standard server client
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
       return NextResponse.json(
-        { error: 'Pipeline not found' },
-        { status: 404 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
 
-    // Check if user has access to view share settings (must be owner)
-    const canManageSharing = user && pipeline.user_id === user.id;
-    if (!canManageSharing) {
+    // getById already filters by user_id, so if found, user is the owner
+    const pipeline = await pipelinesRepository.getById(id);
+    if (!pipeline) {
       return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
+        { error: 'Pipeline not found or access denied' },
+        { status: 404 }
       );
     }
 
@@ -84,23 +60,26 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const user = await getCurrentUser(request);
+    
+    // Get current user using the standard server client
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    
     const body = await request.json();
 
+    // getById already filters by user_id, so if found, user is the owner
     const pipeline = await pipelinesRepository.getById(id);
     if (!pipeline) {
       return NextResponse.json(
-        { error: 'Pipeline not found' },
+        { error: 'Pipeline not found or access denied' },
         { status: 404 }
-      );
-    }
-
-    // Check if user has access to update share settings (must be owner)
-    const canManageSharing = user && pipeline.user_id === user.id;
-    if (!canManageSharing) {
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
       );
     }
 
