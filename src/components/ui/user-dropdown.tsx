@@ -17,6 +17,7 @@ import { useAuth } from "@/lib/supabase/use-auth";
 import { ControlledSettingsDialog } from "@/components/ui/settings-dialog";
 import { ProfileDialog } from "@/components/ui/profile-dialog";
 import { ShareCanvasDialog } from "@/components/ui/share-canvas-dialog";
+import { useCollaboration } from "@/components/collaboration";
 
 interface UserDropdownProps {
   className?: string;
@@ -24,6 +25,7 @@ interface UserDropdownProps {
 
 export function UserDropdown({ className }: UserDropdownProps) {
   const { user, loading, signOut } = useAuth();
+  const { setShareCanvasEnabled } = useCollaboration();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -76,7 +78,7 @@ export function UserDropdown({ className }: UserDropdownProps) {
     profile: [
       { icon: "solar:user-circle-line-duotone", label: "Profile", action: "profile" },
       { icon: "solar:settings-line-duotone", label: "Settings", action: "settings" },
-      { icon: "solar:share-circle-line-duotone", label: "Share Canvas", action: "share", badge: "New" },
+      { icon: "solar:share-circle-line-duotone", label: "Share Canvas", action: "share", badge: "Beta" },
     ],
     account: [
       { icon: "solar:logout-2-bold-duotone", label: "Log out", action: "logout" },
@@ -177,6 +179,7 @@ export function UserDropdown({ className }: UserDropdownProps) {
       <ShareCanvasDialog
         open={shareOpen}
         onOpenChange={setShareOpen}
+        onShareCanvasEnabledChange={setShareCanvasEnabled}
       />
     </>
   );

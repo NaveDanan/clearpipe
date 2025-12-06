@@ -40,6 +40,7 @@ export async function GET(
       id: pipeline.id,
       name: pipeline.name,
       isPublic: pipeline.is_public || false,
+      shareMode: pipeline.share_mode || 'private',
       shareToken: pipeline.share_token,
       shareUrl,
       sharedWith: pipeline.shared_with || [],
@@ -88,6 +89,11 @@ export async function PATCH(
       await pipelinesRepository.setPublicAccess(id, body.isPublic);
     }
 
+    // Update share mode if provided
+    if (body.shareMode && ['private', 'public', 'verified'].includes(body.shareMode)) {
+      await pipelinesRepository.updateShareMode(id, body.shareMode);
+    }
+
     // Regenerate share token if requested
     if (body.regenerateToken) {
       await pipelinesRepository.regenerateShareToken(id);
@@ -106,6 +112,7 @@ export async function PATCH(
       id: updatedPipeline?.id,
       name: updatedPipeline?.name,
       isPublic: updatedPipeline?.is_public || false,
+      shareMode: updatedPipeline?.share_mode || 'private',
       shareToken: updatedPipeline?.share_token,
       shareUrl,
       sharedWith: updatedPipeline?.shared_with || [],

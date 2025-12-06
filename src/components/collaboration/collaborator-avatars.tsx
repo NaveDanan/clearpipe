@@ -38,7 +38,12 @@ export function CollaboratorAvatars({
   size = 32,
 }: CollaboratorAvatarsProps) {
   const collaborators = useOnlineCollaborators();
-  const { isConnected, currentUserId } = useCollaboration();
+  const { isConnected, isShareCanvasEnabled, currentUserId } = useCollaboration();
+
+  // Only show connection indicator if Share Canvas is enabled
+  if (!isShareCanvasEnabled) {
+    return null;
+  }
 
   // Show connection indicator even if no other collaborators
   if (collaborators.length === 0 && !isConnected) {

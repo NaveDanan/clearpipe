@@ -7,7 +7,8 @@ import {
   realtimeService, 
   getUserColor,
   type UserPresence,
-  type PipelineChangeBroadcast 
+  type PipelineChangeBroadcast,
+  type PipelineChangePayload,
 } from '@/lib/supabase/realtime';
 
 interface CollaboratorCursor {
@@ -31,8 +32,10 @@ interface CollaborationContextType {
   collaborators: Collaborator[];
   currentUserId: string | null;
   isConnected: boolean;
+  isShareCanvasEnabled: boolean;
   updateCursorPosition: (x: number, y: number) => void;
-  broadcastPipelineChange: (type: PipelineChangeBroadcast['type'], payload: any) => void;
+  broadcastPipelineChange: (type: PipelineChangeBroadcast['type'], payload: PipelineChangePayload) => void;
+  setShareCanvasEnabled: (enabled: boolean) => void;
 }
 
 const CollaborationContext = createContext<CollaborationContextType | null>(null);
@@ -52,6 +55,8 @@ interface CollaborationProviderProps {
   userName?: string;
   userEmail?: string;
   userAvatar?: string;
+  isShareCanvasEnabled?: boolean;
+  onShareCanvasEnabledChange?: (enabled: boolean) => void;
 }
 
 export function CollaborationProvider({
@@ -61,11 +66,20 @@ export function CollaborationProvider({
   userName,
   userEmail,
   userAvatar,
+  isShareCanvasEnabled = false,
+  onShareCanvasEnabledChange,
 }: CollaborationProviderProps) {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [shareCanvasEnabled, setShareCanvasEnabledState] = useState(isShareCanvasEnabled);
   const managerRef = useRef<PipelineRealtimeManager | null>(null);
   const lastCursorBroadcastRef = useRef(0);
+
+  // Handle Share Canvas enabled changes
+  const setShareCanvasEnabled = useCallback((enabled: boolean) => {
+    setShareCanvasEnabledState(enabled);
+    onShareCanvasEnabledChange?.(enabled);
+  }, [onShareCanvasEnabledChange]);
 
   // Get pipeline store functions for syncing changes
   const { 
@@ -107,60 +121,68 @@ export function CollaborationProvider({
       case 'nodes':
         // Apply node position/dimension changes
         if (Array.isArray(payload)) {
-          onNodesChange(payload);
+          onNodesChange(payload as Parameters<typeof onNodesChange>[0]);
         }
         break;
 
       case 'edges':
         // Apply edge changes
         if (Array.isArray(payload)) {
-          onEdgesChange(payload);
+          onEdgesChange(payload as Parameters<typeof onEdgesChange>[0]);
         }
         break;
 
-      case 'node_data':
+      case 'node_data': {
         // Update specific node data
-        if (payload.nodeId && payload.data) {
-          usePipelineStore.getState().updateNodeData(payload.nodeId, payload.data);
+        const nodeDataPayload = payload as any;
+        if (nodeDataPayload.nodeId && nodeDataPayload.data) {
+          usePipelineStore.getState().updateNodeData(nodeDataPayload.nodeId, nodeDataPayload.data);
         }
         break;
+      }
 
-      case 'node_add':
+      case 'node_add': {
         // Add a new node
-        if (payload.type && payload.position) {
+        const nodeAddPayload = payload as any;
+        if (nodeAddPayload.type && nodeAddPayload.position) {
           // Use store directly to avoid triggering broadcasts
           const { nodes: currentNodes } = usePipelineStore.getState();
-          if (!currentNodes.find(n => n.id === payload.id)) {
+          if (!currentNodes.find(n => n.id === nodeAddPayload.id)) {
             usePipelineStore.setState({
-              nodes: [...currentNodes, payload],
+              nodes: [...currentNodes, nodeAddPayload],
               isDirty: true,
             });
           }
         }
         break;
+      }
 
-      case 'node_delete':
+      case 'node_delete': {
         // Delete a node
-        if (payload.nodeId) {
+        const nodeDeletePayload = payload as any;
+        if (nodeDeletePayload.nodeId) {
           const { nodes: currentNodes, edges: currentEdges } = usePipelineStore.getState();
           usePipelineStore.setState({
-            nodes: currentNodes.filter(n => n.id !== payload.nodeId),
-            edges: currentEdges.filter(e => e.source !== payload.nodeId && e.target !== payload.nodeId),
+            nodes: currentNodes.filter(n => n.id !== nodeDeletePayload.nodeId),
+            edges: currentEdges.filter(e => e.source !== nodeDeletePayload.nodeId && e.target !== nodeDeletePayload.nodeId),
             isDirty: true,
           });
         }
         break;
+      }
 
-      case 'full_sync':
+      case 'full_sync': {
         // Full state sync (used for initial sync or recovery)
-        if (payload.nodes && payload.edges) {
+        const fullSyncPayload = payload as any;
+        if (fullSyncPayload.nodes && fullSyncPayload.edges) {
           usePipelineStore.setState({
-            nodes: payload.nodes,
-            edges: payload.edges,
+            nodes: fullSyncPayload.nodes,
+            edges: fullSyncPayload.edges,
             isDirty: true,
           });
         }
         break;
+      }
     }
   }, [onNodesChange, onEdgesChange]);
 
@@ -284,7 +306,7 @@ export function CollaborationProvider({
   // Broadcast pipeline changes
   const broadcastPipelineChange = useCallback((
     type: PipelineChangeBroadcast['type'],
-    payload: any
+    payload: PipelineChangePayload
   ) => {
     managerRef.current?.broadcastPipelineChange(type, payload);
   }, []);
@@ -295,8 +317,10 @@ export function CollaborationProvider({
         collaborators,
         currentUserId: userId || null,
         isConnected,
+        isShareCanvasEnabled: shareCanvasEnabled,
         updateCursorPosition,
         broadcastPipelineChange,
+        setShareCanvasEnabled,
       }}
     >
       {children}
@@ -328,7 +352,7 @@ export function useSafeBroadcastChange() {
   const context = useContext(CollaborationContext);
   if (!context) {
     // Return a no-op function when not in collaboration context
-    return (() => {}) as (type: PipelineChangeBroadcast['type'], payload: any) => void;
+    return (() => {}) as (type: PipelineChangeBroadcast['type'], payload: PipelineChangePayload) => void;
   }
   return context.broadcastPipelineChange;
 }

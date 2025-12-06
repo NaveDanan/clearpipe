@@ -35,6 +35,7 @@ export interface PipelineRow {
   version: string;
   is_public?: boolean;
   share_token?: string;
+  share_mode?: 'private' | 'public' | 'verified';
   shared_with?: string[];
   created_at: string;
   updated_at: string;
@@ -448,6 +449,24 @@ export const pipelinesRepository = {
     return pipeline;
   },
 
+  async updateShareMode(id: string, shareMode: 'private' | 'public' | 'verified'): Promise<PipelineRow | null> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) throw new Error('Unauthorized');
+    
+    const { data: pipeline, error } = await supabase
+      .from('pipelines')
+      .update({ share_mode: shareMode })
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .select()
+      .single();
+    
+    if (error && error.code !== 'PGRST116') throw error;
+    return pipeline;
+  },
+
   async regenerateShareToken(id: string): Promise<string | null> {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -740,13 +759,17 @@ export const teamMembersRepository = {
     
     if (!user) throw new Error('Unauthorized');
     
-    const { error, count } = await supabase
+    // First check if the member exists
+    const existing = await this.getById(id);
+    if (!existing) return false;
+    
+    const { error } = await supabase
       .from('team_members')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);
     
     if (error) throw error;
-    return (count ?? 0) > 0;
+    return true;
   },
 };

@@ -23,11 +23,55 @@ export interface CursorBroadcast {
   y: number;
 }
 
+// Payload types for different pipeline change broadcasts
+export interface NodeChangePayload {
+  type: 'position' | 'dimensions' | 'select';
+  item: { id: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface EdgeChangePayload {
+  type: 'add' | 'remove' | 'select';
+  item?: { source: string; target: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface NodeDataPayload {
+  nodeId: string;
+  data: Record<string, unknown>;
+}
+
+export interface NodeAddPayload {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  data?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface NodeDeletePayload {
+  nodeId: string;
+}
+
+export interface FullSyncPayload {
+  nodes: Array<{ id: string; [key: string]: unknown }>;
+  edges: Array<{ source: string; target: string; [key: string]: unknown }>;
+}
+
+// Union type for all possible payloads
+export type PipelineChangePayload =
+  | NodeChangePayload
+  | EdgeChangePayload
+  | NodeDataPayload
+  | NodeAddPayload
+  | NodeDeletePayload
+  | FullSyncPayload;
+
 export interface PipelineChangeBroadcast {
   type: 'nodes' | 'edges' | 'node_data' | 'node_delete' | 'node_add' | 'full_sync';
   userId: string;
   timestamp: string;
-  payload: any;
+  payload: PipelineChangePayload;
 }
 
 // Collaborator colors for visual distinction
@@ -219,7 +263,7 @@ export class PipelineRealtimeManager {
   // Broadcast pipeline changes
   broadcastPipelineChange(
     type: PipelineChangeBroadcast['type'],
-    payload: any
+    payload: PipelineChangePayload
   ) {
     if (!this.channel) return;
 

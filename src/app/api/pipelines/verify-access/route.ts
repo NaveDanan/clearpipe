@@ -9,7 +9,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { pipelineId, shareToken } = body;
+    const { pipelineId, shareToken, userEmail } = body;
 
     console.log('verify-access called with:', { pipelineId, shareToken: shareToken ? '***' : undefined });
 
@@ -22,6 +22,7 @@ export async function POST(request: NextRequest) {
 
     // Get current user if Supabase is configured
     let userId: string | undefined;
+    let userEmailFromAuth: string | undefined;
     
     if (supabaseUrl && supabaseAnonKey) {
       const supabase = createServerClient(
@@ -41,40 +42,13 @@ export async function POST(request: NextRequest) {
 
       const { data: { user } } = await supabase.auth.getUser();
       userId = user?.id;
+      userEmailFromAuth = user?.email;
     }
 
     console.log('verify-access userId:', userId || 'none');
 
-    // Check access permissions first (this handles share token verification)
-    const hasAccess = await pipelinesRepository.hasAccess(pipelineId, userId, shareToken);
-
-    console.log('verify-access hasAccess:', hasAccess);
-
-    if (!hasAccess) {
-      // If a share token was provided but access denied, it's invalid
-      if (shareToken) {
-        console.log('verify-access: Invalid share token');
-        return NextResponse.json(
-          { error: 'Invalid or expired share link' },
-          { status: 403 }
-        );
-      }
-      // If no userId and no valid share token, user needs to login
-      if (!userId) {
-        return NextResponse.json(
-          { error: 'Authentication required' },
-          { status: 401 }
-        );
-      }
-      // User is authenticated but doesn't have access
-      return NextResponse.json(
-        { error: 'Access denied' },
-        { status: 403 }
-      );
-    }
-
-    // Access granted - now get the pipeline details
-    // Use getByIdPublic since we've already verified access
+    // Get the pipeline details
+    // Use getByIdPublic to fetch the pipeline
     const pipeline = await pipelinesRepository.getByIdPublic(pipelineId);
     if (!pipeline) {
       return NextResponse.json(
@@ -83,11 +57,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check share mode restrictions
+    const shareMode = pipeline.share_mode || 'private';
+    const currentUserEmail = userEmailFromAuth || userEmail;
+
+    // If share mode is 'verified', check if user is in the invited team members list
+    if (shareMode === 'verified') {
+      if (!currentUserEmail) {
+        return NextResponse.json(
+          { error: 'Authentication required for verified sharing' },
+          { status: 401 }
+        );
+      }
+
+      // Check if user email is in the shared_with list
+      const isUserInvited = pipeline.shared_with?.includes(currentUserEmail) || false;
+      if (!isUserInvited) {
+        return NextResponse.json(
+          { error: 'Access denied - not in invited members' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Return pipeline metadata (not the full pipeline for security)
     return NextResponse.json({
       id: pipeline.id,
       name: pipeline.name,
       isPublic: pipeline.is_public,
+      shareMode: shareMode,
       canEdit: userId && pipeline.user_id === userId,
     });
   } catch (error) {
