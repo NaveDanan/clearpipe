@@ -794,7 +794,7 @@ export function ShareCanvasDialog({
                     className="w-full"
                     size="sm"
                   >
-                    <Icon icon="solar:letter-line-duotone" className="size-4 mr-2" />
+                    
                     Invite {emailsToInvite.length} Member{emailsToInvite.length > 1 ? 's' : ''}
                   </Button>
                 </div>
