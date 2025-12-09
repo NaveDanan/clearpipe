@@ -361,3 +361,103 @@ export interface RealTimeConfig {
   interval?: number; // For polling
   endpoint?: string;
 }
+
+// ============================================================================
+// Pipeline Sharing & Collaboration Types
+// ============================================================================
+
+// Pipeline member roles
+export type PipelineMemberRole = 'manager' | 'supervisor' | 'member';
+
+// Pipeline member status
+export type PipelineMemberStatus = 'pending' | 'active' | 'revoked';
+
+// Pipeline member interface
+export interface PipelineMember {
+  id: string;
+  pipelineId: string;
+  userId?: string;
+  email: string;
+  name?: string;
+  avatarUrl?: string;
+  role: PipelineMemberRole;
+  status: PipelineMemberStatus;
+  invitedBy?: string;
+  invitedAt: string;
+  joinedAt?: string;
+  lastSeenAt?: string;
+  isOnline?: boolean;
+}
+
+// Pipeline presence for real-time tracking
+export interface PipelinePresence {
+  id: string;
+  pipelineId: string;
+  userId: string;
+  userEmail: string;
+  userName?: string;
+  userAvatar?: string;
+  cursorX?: number;
+  cursorY?: number;
+  isOnline: boolean;
+  lastHeartbeat: string;
+  connectedAt: string;
+}
+
+// Share settings for a pipeline
+export interface PipelineShareSettings {
+  id: string;
+  name: string;
+  isPublic: boolean;
+  shareMode: 'private' | 'public' | 'verified';
+  shareToken?: string;
+  shareUrl: string;
+  managerId: string;
+  members: PipelineMember[];
+  onlineUsers: PipelinePresence[];
+}
+
+// Role permissions
+export interface RolePermissions {
+  canEdit: boolean;
+  canInviteMembers: boolean;
+  canRemoveMembers: boolean;
+  canChangeSettings: boolean;
+  canAssignSupervisor: boolean;
+  canDeletePipeline: boolean;
+}
+
+// Get permissions for a role
+export function getRolePermissions(role: PipelineMemberRole, isOwner: boolean = false): RolePermissions {
+  if (isOwner || role === 'manager') {
+    return {
+      canEdit: true,
+      canInviteMembers: true,
+      canRemoveMembers: true,
+      canChangeSettings: true,
+      canAssignSupervisor: true,
+      canDeletePipeline: isOwner,
+    };
+  }
+  
+  if (role === 'supervisor') {
+    return {
+      canEdit: true,
+      canInviteMembers: true,
+      canRemoveMembers: true, // Can only remove regular members
+      canChangeSettings: true,
+      canAssignSupervisor: false,
+      canDeletePipeline: false,
+    };
+  }
+  
+  // Regular member
+  return {
+    canEdit: true,
+    canInviteMembers: false,
+    canRemoveMembers: false,
+    canChangeSettings: false,
+    canAssignSupervisor: false,
+    canDeletePipeline: false,
+  };
+}

@@ -1,8 +1,10 @@
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, createClient as createSupabaseClient } from '@supabase/ssr';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -32,4 +34,19 @@ export async function createClient() {
       },
     }
   );
+}
+
+// Create a service role client for admin operations (like fetching user info by ID)
+export function createAdminClient() {
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    console.warn('Supabase service role credentials not configured.');
+    return null;
+  }
+  
+  return createServiceClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }

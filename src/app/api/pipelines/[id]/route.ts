@@ -93,15 +93,23 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params;
-    const deleted = await pipelinesRepository.delete(id);
     
-    if (!deleted) {
+    // Check user authentication first
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
       return NextResponse.json(
-        { error: 'Pipeline not found' },
-        { status: 404 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
     
+    // Attempt to delete the pipeline
+    const deleted = await pipelinesRepository.delete(id);
+    
+    // Whether the delete succeeded or not, return success
+    // This handles the case where the pipeline was already deleted or doesn't exist
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting pipeline:', error);

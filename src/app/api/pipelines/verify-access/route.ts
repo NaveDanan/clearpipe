@@ -43,6 +43,25 @@ export async function POST(request: NextRequest) {
       const { data: { user } } = await supabase.auth.getUser();
       userId = user?.id;
       userEmailFromAuth = user?.email;
+
+      // Check if user is a pipeline member
+      if (userId) {
+        const { data: memberRecord } = await supabase
+          .from('pipeline_members')
+          .select('role, status')
+          .eq('pipeline_id', pipelineId)
+          .eq('user_id', userId)
+          .single();
+
+        if (memberRecord && memberRecord.status === 'active') {
+          // Update last_seen_at
+          await supabase
+            .from('pipeline_members')
+            .update({ last_seen_at: new Date().toISOString() })
+            .eq('pipeline_id', pipelineId)
+            .eq('user_id', userId);
+        }
+      }
     }
 
     console.log('verify-access userId:', userId || 'none');
@@ -57,12 +76,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if user is the owner
+    const isOwner = userId && pipeline.user_id === userId;
+
     // Check share mode restrictions
     const shareMode = pipeline.share_mode || 'private';
     const currentUserEmail = userEmailFromAuth || userEmail;
 
+    // If private, only owner can access
+    if (shareMode === 'private' && !isOwner) {
+      // Check if user is in pipeline_members
+      if (supabaseUrl && supabaseAnonKey && userId) {
+        const supabase = createServerClient(
+          supabaseUrl,
+          supabaseAnonKey,
+          {
+            cookies: {
+              getAll() {
+                return request.cookies.getAll();
+              },
+              setAll() {},
+            },
+          }
+        );
+
+        const { data: memberRecord } = await supabase
+          .from('pipeline_members')
+          .select('role, status')
+          .eq('pipeline_id', pipelineId)
+          .eq('user_id', userId)
+          .single();
+
+        if (!memberRecord || memberRecord.status !== 'active') {
+          return NextResponse.json(
+            { error: 'Access denied - private pipeline' },
+            { status: 403 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          { error: 'Access denied - private pipeline' },
+          { status: 403 }
+        );
+      }
+    }
+
     // If share mode is 'verified', check if user is in the invited team members list
-    if (shareMode === 'verified') {
+    if (shareMode === 'verified' && !isOwner) {
       if (!currentUserEmail) {
         return NextResponse.json(
           { error: 'Authentication required for verified sharing' },
@@ -70,13 +130,70 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Check if user email is in the shared_with list
+      // Check if user email is in the shared_with list or pipeline_members
       const isUserInvited = pipeline.shared_with?.includes(currentUserEmail) || false;
-      if (!isUserInvited) {
+      
+      // Also check pipeline_members table
+      let isMember = false;
+      if (supabaseUrl && supabaseAnonKey && userId) {
+        const supabase = createServerClient(
+          supabaseUrl,
+          supabaseAnonKey,
+          {
+            cookies: {
+              getAll() {
+                return request.cookies.getAll();
+              },
+              setAll() {},
+            },
+          }
+        );
+
+        const { data: memberRecord } = await supabase
+          .from('pipeline_members')
+          .select('id')
+          .eq('pipeline_id', pipelineId)
+          .or(`user_id.eq.${userId},email.eq.${currentUserEmail}`)
+          .single();
+
+        isMember = !!memberRecord;
+      }
+
+      if (!isUserInvited && !isMember) {
         return NextResponse.json(
           { error: 'Access denied - not in invited members' },
           { status: 403 }
         );
+      }
+    }
+
+    // Determine user's role
+    let userRole = 'member';
+    if (isOwner) {
+      userRole = 'manager';
+    } else if (supabaseUrl && supabaseAnonKey && userId) {
+      const supabase = createServerClient(
+        supabaseUrl,
+        supabaseAnonKey,
+        {
+          cookies: {
+            getAll() {
+              return request.cookies.getAll();
+            },
+            setAll() {},
+          },
+        }
+      );
+
+      const { data: memberRecord } = await supabase
+        .from('pipeline_members')
+        .select('role')
+        .eq('pipeline_id', pipelineId)
+        .eq('user_id', userId)
+        .single();
+
+      if (memberRecord) {
+        userRole = memberRecord.role;
       }
     }
 
@@ -86,7 +203,11 @@ export async function POST(request: NextRequest) {
       name: pipeline.name,
       isPublic: pipeline.is_public,
       shareMode: shareMode,
-      canEdit: userId && pipeline.user_id === userId,
+      isOwner,
+      userRole,
+      canEdit: isOwner || userRole === 'supervisor' || userRole === 'member',
+      canChangeSettings: isOwner || userRole === 'supervisor',
+      canInviteMembers: isOwner || userRole === 'supervisor',
     });
   } catch (error) {
     console.error('Error verifying pipeline access:', error);

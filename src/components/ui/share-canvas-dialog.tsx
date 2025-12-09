@@ -13,10 +13,24 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Icon } from "@iconify/react";
 import { cn } from "@/lib/utils";
 import { usePipelineStore } from "@/stores/pipeline-store";
 import UniqueLoading from "@/components/ui/morph-loading";
+import { PipelineMember, PipelineMemberRole, getRolePermissions } from "@/types/pipeline";
 
 interface TeamMember {
   id: string;
@@ -24,6 +38,9 @@ interface TeamMember {
   email: string;
   avatarUrl?: string;
   invitedAt: string;
+  role?: PipelineMemberRole;
+  status?: string;
+  isOnline?: boolean;
 }
 
 interface ShareSettings {
@@ -34,15 +51,26 @@ interface ShareSettings {
   shareToken?: string;
   shareUrl: string;
   sharedWith: string[];
+  managerId?: string;
+  members?: PipelineMember[];
+  onlineUsers?: Array<{ id: string; email: string; name?: string }>;
 }
 
 interface ShareCanvasDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onShareCanvasEnabledChange?: (enabled: boolean) => void;
+  currentUserRole?: PipelineMemberRole | null;
+  isOwner?: boolean;
 }
 
-export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChange }: ShareCanvasDialogProps) {
+export function ShareCanvasDialog({ 
+  open, 
+  onOpenChange, 
+  onShareCanvasEnabledChange,
+  currentUserRole,
+  isOwner = false,
+}: ShareCanvasDialogProps) {
   const [email, setEmail] = useState("");
   const [emailsToInvite, setEmailsToInvite] = useState<string[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -59,8 +87,16 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
   const [shareMode, setShareMode] = useState<'public' | 'verified'>('public');
   const [isChangingMode, setIsChangingMode] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [updatingRole, setUpdatingRole] = useState<string | null>(null);
 
   const { currentPipeline, savePipeline } = usePipelineStore();
+
+  // Determine permissions based on role
+  const permissions = getRolePermissions(currentUserRole || 'member', isOwner);
+  const canInvite = permissions.canInviteMembers;
+  const canChangeSettings = permissions.canChangeSettings;
+  const canAssignSupervisor = permissions.canAssignSupervisor;
+  const canRemoveMembers = permissions.canRemoveMembers;
 
   // Get current share URL from settings or fallback
   const shareUrl = shareSettings?.shareUrl || (typeof window !== 'undefined' ? window.location.href : '');
@@ -76,27 +112,52 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
         setShareSettings(data);
         setIsPublic(data.isPublic);
         setShareMode(data.shareMode || 'public');
+        
+        // Update team members from share settings members
+        if (data.members) {
+          setTeamMembers(data.members.map((m: PipelineMember) => ({
+            id: m.id,
+            name: m.name || m.email.split('@')[0],
+            email: m.email,
+            avatarUrl: m.avatarUrl,
+            invitedAt: m.invitedAt,
+            role: m.role,
+            status: m.status,
+            isOnline: data.onlineUsers?.some((u: { email: string }) => u.email === m.email),
+          })));
+        }
       }
     } catch (err) {
       console.error('Failed to fetch share settings:', err);
     }
   }, [currentPipeline?.id]);
 
-  // Fetch team members
+  // Fetch team members (pipeline members)
   const fetchTeamMembers = useCallback(async () => {
+    if (!currentPipeline?.id) return;
+    
     setLoading(true);
     try {
-      const res = await fetch('/api/team-members');
+      const res = await fetch(`/api/pipelines/${currentPipeline.id}/members`);
       if (res.ok) {
         const data = await res.json();
-        setTeamMembers(data);
+        setTeamMembers(data.members?.map((m: PipelineMember & { avatarUrl?: string }) => ({
+          id: m.id,
+          name: m.name || m.email.split('@')[0],
+          email: m.email,
+          avatarUrl: m.avatarUrl,
+          invitedAt: m.invitedAt,
+          role: m.role,
+          status: m.status,
+          isOnline: m.isOnline,
+        })) || []);
       }
     } catch (err) {
       console.error('Failed to fetch team members:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentPipeline?.id]);
 
   useEffect(() => {
     if (open) {
@@ -115,6 +176,11 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
     if (!currentPipeline?.id) {
       // Need to save pipeline first
       setError("Please save the pipeline first before sharing");
+      return;
+    }
+
+    if (!canChangeSettings) {
+      setError("You don't have permission to change sharing settings");
       return;
     }
 
@@ -146,6 +212,11 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
   const handleShareModeChange = async (newMode: 'public' | 'verified') => {
     if (!currentPipeline?.id) {
       setError("Please save the pipeline first before sharing");
+      return;
+    }
+
+    if (!canChangeSettings) {
+      setError("You don't have permission to change sharing settings");
       return;
     }
 
@@ -205,6 +276,11 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
 
   // Handle adding email to the list
   const handleAddEmail = () => {
+    if (!canInvite) {
+      setError("You don't have permission to invite members");
+      return;
+    }
+    
     const trimmedEmail = email.trim().toLowerCase();
     
     if (!isValidEmail(trimmedEmail)) {
@@ -241,6 +317,16 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
       return;
     }
 
+    if (!canInvite) {
+      setError("You don't have permission to invite members");
+      return;
+    }
+
+    if (!currentPipeline?.id) {
+      setError("Please save the pipeline first before inviting members");
+      return;
+    }
+
     setInviting(true);
     setError(null);
     setSuccess(null);
@@ -253,19 +339,16 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
       setInviteProgress({ current: i + 1, total: emailsToInvite.length });
 
       try {
-        const res = await fetch('/api/team-members', {
+        const res = await fetch(`/api/pipelines/${currentPipeline.id}/members`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             email: emailToInvite,
-            pipelineId: currentPipeline?.id,
-            shareUrl: shareUrl,
+            role: 'member',
           }),
         });
 
         if (res.ok) {
-          const newMember = await res.json();
-          setTeamMembers(prev => [newMember, ...prev]);
           results.success++;
         } else {
           const data = await res.json();
@@ -279,10 +362,13 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
       }
     }
 
-    // Clear the emails list
+    // Clear the emails list and refresh members
     setEmailsToInvite([]);
     setInviting(false);
     setInviteProgress({ current: 0, total: 0 });
+    
+    // Refresh the team members list
+    await fetchTeamMembers();
 
     // Show results
     if (results.success > 0 && results.failed === 0) {
@@ -299,17 +385,59 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
 
   // Handle remove member
   const handleRemove = async (id: string) => {
+    if (!canRemoveMembers) {
+      setError("You don't have permission to remove members");
+      return;
+    }
+    
     try {
-      const res = await fetch(`/api/team-members/${id}`, {
+      const res = await fetch(`/api/pipelines/${currentPipeline?.id}/members/${id}`, {
         method: 'DELETE',
       });
 
       if (res.ok) {
         // Refresh team members list from server to ensure sync
         await fetchTeamMembers();
+        setSuccess("Member removed successfully");
+        setTimeout(() => setSuccess(null), 3000);
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to remove member");
       }
     } catch (err) {
       console.error('Failed to remove member:', err);
+      setError("Failed to remove member");
+    }
+  };
+
+  // Handle role change
+  const handleRoleChange = async (memberId: string, newRole: PipelineMemberRole) => {
+    if (!canAssignSupervisor && newRole === 'supervisor') {
+      setError("Only the pipeline manager can assign supervisors");
+      return;
+    }
+    
+    setUpdatingRole(memberId);
+    try {
+      const res = await fetch(`/api/pipelines/${currentPipeline?.id}/members/${memberId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      });
+
+      if (res.ok) {
+        await fetchTeamMembers();
+        setSuccess(`Role updated to ${newRole === 'supervisor' ? 'Pipeline Supervisor' : 'Member'}`);
+        setTimeout(() => setSuccess(null), 3000);
+      } else {
+        const data = await res.json();
+        setError(data.error || "Failed to update role");
+      }
+    } catch (err) {
+      console.error('Failed to update role:', err);
+      setError("Failed to update role");
+    } finally {
+      setUpdatingRole(null);
     }
   };
 
@@ -402,7 +530,7 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
                 variant={isPublic ? "default" : "outline"}
                 size="sm"
                 onClick={handleTogglePublic}
-                disabled={needsSave}
+                disabled={needsSave || !canChangeSettings}
                 className={isPublic ? "bg-green-500 hover:bg-green-600" : ""}
               >
                 {isPublic ? "Enabled" : "Enable"}
@@ -442,10 +570,10 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
                   {/* Public Mode */}
                   <button
                     onClick={() => handleShareModeChange('public')}
-                    disabled={isChangingMode}
+                    disabled={isChangingMode || !canChangeSettings}
                     className={cn(
                       "p-3 rounded-lg border-2 transition-all text-left",
-                      isChangingMode && "opacity-50 cursor-not-allowed",
+                      (isChangingMode || !canChangeSettings) && "opacity-50 cursor-not-allowed",
                       shareMode === 'public'
                         ? "border-green-500 bg-green-500/10"
                         : "border-muted bg-muted/50 hover:bg-muted"
@@ -476,10 +604,10 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
                   {/* Verified Mode */}
                   <button
                     onClick={() => handleShareModeChange('verified')}
-                    disabled={isChangingMode}
+                    disabled={isChangingMode || !canChangeSettings}
                     className={cn(
                       "p-3 rounded-lg border-2 transition-all text-left",
-                      isChangingMode && "opacity-50 cursor-not-allowed",
+                      (isChangingMode || !canChangeSettings) && "opacity-50 cursor-not-allowed",
                       shareMode === 'verified'
                         ? "border-blue-500 bg-blue-500/10"
                         : "border-muted bg-muted/50 hover:bg-muted"
@@ -555,37 +683,89 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
             )}
 
             <div className="border-t pt-4">
+              {/* Pipeline Manager Info */}
+              {isOwner && (
+                <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <Icon icon="solar:crown-bold-duotone" className="size-5 text-amber-500" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                      You are the Pipeline Manager
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      You have full control over this pipeline and its members
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {!isOwner && currentUserRole === 'supervisor' && (
+                <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <Icon icon="solar:shield-star-bold-duotone" className="size-5 text-blue-500" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                      You are a Pipeline Supervisor
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      You can manage settings and invite members
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {!isOwner && currentUserRole === 'member' && (
+                <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-muted/50 border">
+                  <Icon icon="solar:user-bold-duotone" className="size-5 text-muted-foreground" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium">
+                      You are a Team Member
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      You can view and edit the pipeline
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <p className="text-sm font-medium mb-3">Invite Team Members</p>
               
               {/* Invite Input */}
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Email address"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddEmail();
-                    }
-                  }}
-                  className="flex-1"
-                  disabled={inviting}
-                />
-                <Button
-                  variant="outline"
-                  onClick={handleAddEmail}
-                  disabled={inviting || !email}
-                  className="shrink-0"
-                >
-                  <Icon icon="solar:add-circle-line-duotone" className="size-4 mr-1" />
-                  Add
-                </Button>
-              </div>
+              {canInvite ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Email address"
+                    type="email"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddEmail();
+                      }
+                    }}
+                    className="flex-1"
+                    disabled={inviting}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={handleAddEmail}
+                    disabled={inviting || !email}
+                    className="shrink-0"
+                  >
+                    <Icon icon="solar:add-circle-line-duotone" className="size-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border">
+                  <Icon icon="solar:lock-bold-duotone" className="size-4 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">
+                    Only the Pipeline Manager and Supervisors can invite members
+                  </p>
+                </div>
+              )}
 
               {/* Email Badges */}
               {emailsToInvite.length > 0 && (
@@ -636,7 +816,7 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
             </div>
 
             {/* Team Members List */}
-            <ScrollArea className="h-[200px] -mx-1 px-1">
+            <ScrollArea className="h-[250px] -mx-1 px-1">
               {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <Icon icon="solar:spinner-line-duotone" className="size-6 animate-spin text-muted-foreground" />
@@ -654,28 +834,97 @@ export function ShareCanvasDialog({ open, onOpenChange, onShareCanvasEnabledChan
                       key={member.id}
                       className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors group"
                     >
-                      <Avatar className="size-9">
-                        <AvatarImage src={member.avatarUrl} alt={member.name} />
-                        <AvatarFallback className="text-xs">
-                          {getInitials(member.name, member.email)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <div className="relative">
+                        <Avatar className="size-9">
+                          <AvatarImage src={member.avatarUrl} alt={member.name} />
+                          <AvatarFallback className="text-xs">
+                            {getInitials(member.name, member.email)}
+                          </AvatarFallback>
+                        </Avatar>
+                        {/* Online indicator */}
+                        {member.isOnline && (
+                          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-background rounded-full" />
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate text-primary">
-                          {member.name}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium truncate text-primary">
+                            {member.name}
+                          </p>
+                          {/* Role badge */}
+                          {member.role === 'manager' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-amber-500/10 text-amber-600 border-amber-500/20">
+                                    <Icon icon="solar:crown-bold-duotone" className="size-3 mr-0.5" />
+                                    Manager
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Pipeline Manager - Full control over this pipeline</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          {member.role === 'supervisor' && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                    <Icon icon="solar:shield-star-bold-duotone" className="size-3 mr-0.5" />
+                                    Supervisor
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Can manage settings and invite members</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                          {member.isOnline && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/20">
+                              Online
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground truncate">
                           {member.email}
                         </p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/10"
-                        onClick={() => handleRemove(member.id)}
-                      >
-                        <Icon icon="solar:trash-bin-trash-bold-duotone" className="size-4 text-red-500" />
-                      </Button>
+                      
+                      {/* Role selector (only for owner/manager) */}
+                      {canAssignSupervisor && member.role !== 'manager' && (
+                        <Select
+                          value={member.role || 'member'}
+                          onValueChange={(value) => handleRoleChange(member.id, value as PipelineMemberRole)}
+                          disabled={updatingRole === member.id}
+                        >
+                          <SelectTrigger className="w-[100px] h-7 text-xs">
+                            {updatingRole === member.id ? (
+                              <Icon icon="solar:spinner-line-duotone" className="size-3 animate-spin" />
+                            ) : (
+                              <SelectValue />
+                            )}
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="member">Member</SelectItem>
+                            <SelectItem value="supervisor">Supervisor</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                      
+                      {/* Remove button */}
+                      {canRemoveMembers && member.role !== 'manager' && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/10"
+                          onClick={() => handleRemove(member.id)}
+                        >
+                          <Icon icon="solar:trash-bin-trash-bold-duotone" className="size-4 text-red-500" />
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>

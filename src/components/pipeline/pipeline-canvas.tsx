@@ -32,6 +32,7 @@ import {
 } from '@/components/collaboration';
 import { CollaboratorCursors } from '@/components/collaboration/collaborator-cursors';
 import { useAuth } from '@/lib/supabase/use-auth';
+import { useKeyboardShortcuts } from '@/components/hooks/use-keyboard-shortcuts';
 
 // Edge context menu state
 interface EdgeContextMenu {
@@ -50,6 +51,33 @@ function PipelineCanvasInner() {
   
   // Collaboration cursor tracking and broadcasting
   const { updateCursorPosition, broadcastPipelineChange, isConnected } = useCollaboration();
+  
+  // Get sidebar states from store
+  const {
+    nodes,
+    edges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+    addNode,
+    selectNode,
+    isConfigPanelOpen,
+    isLeftSidebarOpen,
+    isRightSidebarOpen,
+    toggleLeftSidebar,
+    toggleRightSidebar,
+    setLeftSidebarOpen,
+    setRightSidebarOpen,
+    setDragging,
+    pushHistory,
+  } = usePipelineStore();
+  
+  // Initialize keyboard shortcuts
+  useKeyboardShortcuts({
+    onToggleLeftSidebar: toggleLeftSidebar,
+    onToggleRightSidebar: toggleRightSidebar,
+    canvasRef: reactFlowWrapper,
+  });
   
   // Track mouse movement on canvas for collaboration
   const handleMouseMove = useCallback((event: React.MouseEvent) => {
@@ -114,17 +142,6 @@ function PipelineCanvasInner() {
 
     return () => observer.disconnect();
   }, [handleZoom]);
-
-  const {
-    nodes,
-    edges,
-    onNodesChange,
-    onEdgesChange,
-    onConnect,
-    addNode,
-    selectNode,
-    isConfigPanelOpen,
-  } = usePipelineStore();
 
   // Wrap onNodesChange to broadcast changes to collaborators
   const handleNodesChange = useCallback((changes: NodeChange<PipelineNode>[]) => {
@@ -225,6 +242,17 @@ function PipelineCanvasInner() {
     event.dataTransfer.effectAllowed = 'move';
   };
 
+  // Handle node drag start - push history before starting drag
+  const onNodeDragStart = useCallback(() => {
+    pushHistory();
+    setDragging(true);
+  }, [pushHistory, setDragging]);
+
+  // Handle node drag stop - end drag state
+  const onNodeDragStop = useCallback(() => {
+    setDragging(false);
+  }, [setDragging]);
+
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: { id: string }) => {
       selectNode(node.id);
@@ -275,9 +303,16 @@ function PipelineCanvasInner() {
     }
   }, [edgeContextMenu]);
 
+  // Handle left sidebar collapse
+  const handleLeftSidebarCollapse = useCallback(() => {
+    setLeftSidebarOpen(false);
+  }, [setLeftSidebarOpen]);
+
+  // Handle right sidebar collapse
   const handleConfigPanelCollapse = useCallback(() => {
     selectNode(null);
-  }, [selectNode]);
+    setRightSidebarOpen(false);
+  }, [selectNode, setRightSidebarOpen]);
 
   // Handle edge reconnection for established connections
   const onReconnect = useCallback((oldEdge: any, newConnection: Connection) => {
@@ -313,6 +348,9 @@ function PipelineCanvasInner() {
         minWidth={100}
         maxWidth={450}
         title="Node Palette"
+        isOpen={isLeftSidebarOpen}
+        onCollapse={handleLeftSidebarCollapse}
+        onExpand={() => setLeftSidebarOpen(true)}
       >
         <NodePalette onDragStart={onDragStart} />
       </ResizablePanel>
@@ -322,6 +360,7 @@ function PipelineCanvasInner() {
         className="flex-1 h-full relative" 
         ref={reactFlowWrapper}
         onMouseMove={handleMouseMove}
+        tabIndex={0}
       >
         <ReactFlow
           nodes={nodes}
@@ -333,6 +372,8 @@ function PipelineCanvasInner() {
           onDrop={onDrop}
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDragStop={onNodeDragStop}
           onPaneClick={onPaneClick}
           onEdgeContextMenu={onEdgeContextMenu}
           nodeTypes={nodeTypes}
@@ -398,8 +439,9 @@ function PipelineCanvasInner() {
         minWidth={480}
         maxWidth={550}
         title="Configuration"
-        isOpen={isConfigPanelOpen}
+        isOpen={isConfigPanelOpen && isRightSidebarOpen}
         onCollapse={handleConfigPanelCollapse}
+        onExpand={() => setRightSidebarOpen(true)}
       >
         <NodeConfigPanel />
       </ResizablePanel>

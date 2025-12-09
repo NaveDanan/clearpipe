@@ -17,7 +17,7 @@ import { useAuth } from "@/lib/supabase/use-auth";
 import { ControlledSettingsDialog } from "@/components/ui/settings-dialog";
 import { ProfileDialog } from "@/components/ui/profile-dialog";
 import { ShareCanvasDialog } from "@/components/ui/share-canvas-dialog";
-import { useCollaboration } from "@/components/collaboration";
+import { useCollaboration, usePermissions } from "@/components/collaboration";
 
 interface UserDropdownProps {
   className?: string;
@@ -26,6 +26,7 @@ interface UserDropdownProps {
 export function UserDropdown({ className }: UserDropdownProps) {
   const { user, loading, signOut } = useAuth();
   const { setShareCanvasEnabled } = useCollaboration();
+  const { currentUserRole, isOwner } = usePermissions();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -180,6 +181,8 @@ export function UserDropdown({ className }: UserDropdownProps) {
         open={shareOpen}
         onOpenChange={setShareOpen}
         onShareCanvasEnabledChange={setShareCanvasEnabled}
+        currentUserRole={currentUserRole}
+        isOwner={isOwner}
       />
     </>
   );

@@ -16,6 +16,7 @@ interface ResizablePanelProps {
   className?: string;
   isOpen?: boolean;
   onCollapse?: () => void;
+  onExpand?: () => void;
 }
 
 export function ResizablePanel({
@@ -29,6 +30,7 @@ export function ResizablePanel({
   className,
   isOpen,
   onCollapse,
+  onExpand,
 }: ResizablePanelProps) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [width, setWidth] = React.useState(defaultWidth);
@@ -36,14 +38,18 @@ export function ResizablePanel({
   const panelRef = React.useRef<HTMLDivElement>(null);
   const prevIsOpenRef = React.useRef<boolean | undefined>(undefined);
 
-  // Auto-expand when isOpen becomes true (but allow manual collapse)
+  // Sync collapsed state with isOpen prop
   React.useEffect(() => {
-    // Only auto-expand when isOpen transitions from false/undefined to true
-    if (isOpen === true && prevIsOpenRef.current !== true && isCollapsed) {
-      setIsCollapsed(false);
+    if (isOpen !== undefined) {
+      // When isOpen is explicitly set, use it to control collapsed state
+      if (isOpen && isCollapsed) {
+        setIsCollapsed(false);
+      } else if (!isOpen && !isCollapsed) {
+        setIsCollapsed(true);
+      }
     }
     prevIsOpenRef.current = isOpen;
-  }, [isOpen]);
+  }, [isOpen, isCollapsed]);
 
   const handleMouseDown = React.useCallback(
     (e: React.MouseEvent) => {
@@ -74,12 +80,18 @@ export function ResizablePanel({
   );
 
   const toggleCollapse = React.useCallback(() => {
-    // If collapsing and onCollapse callback provided, call it first
-    if (!isCollapsed && onCollapse) {
-      onCollapse();
+    const newCollapsed = !isCollapsed;
+    
+    if (newCollapsed) {
+      // Collapsing - call onCollapse callback
+      onCollapse?.();
+    } else {
+      // Expanding - call onExpand callback
+      onExpand?.();
     }
-    setIsCollapsed((prev) => !prev);
-  }, [isCollapsed, onCollapse]);
+    
+    setIsCollapsed(newCollapsed);
+  }, [isCollapsed, onCollapse, onExpand]);
 
   const CollapseIcon = side === 'left' 
     ? (isCollapsed ? ChevronRight : ChevronLeft)

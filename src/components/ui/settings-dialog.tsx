@@ -12,7 +12,8 @@ import {
   Check,
   AlertCircle,
   Server,
-  Loader2
+  Loader2,
+  Keyboard
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,6 +39,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import CinematicThemeSwitcher from '@/components/ui/cinematic-theme-switcher';
+import { KeyboardShortcutsDialog } from '@/components/ui/keyboard-shortcuts-dialog';
 import {
   useSettingsStore,
   CloudProviderType,
@@ -824,6 +826,8 @@ function ConnectionsSection() {
 
 // Settings dialog content component (used internally)
 function SettingsDialogContent({ defaultTab = 'appearance' }: { defaultTab?: string }) {
+  const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
+  
   return (
     <>
       <DialogHeader>
@@ -867,6 +871,34 @@ function SettingsDialogContent({ defaultTab = 'appearance' }: { defaultTab?: str
               <CinematicThemeSwitcher size="sm" />
             </div>
           </div>
+          
+          <Separator />
+          
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label className="text-base font-semibold">Keyboard Shortcuts</Label>
+              <p className="text-sm text-muted-foreground">
+                Learn keyboard shortcuts to speed up your workflow.
+              </p>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Shortcuts Cheatsheet</Label>
+                <p className="text-xs text-muted-foreground">
+                  View all available keyboard shortcuts
+                </p>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setShortcutsDialogOpen(true)}
+                className="flex items-center gap-2"
+              >
+                <Keyboard className="h-4 w-4" />
+                View Shortcuts
+              </Button>
+            </div>
+          </div>
         </TabsContent>
         
         <TabsContent value="connections" className="mt-4">
@@ -877,6 +909,11 @@ function SettingsDialogContent({ defaultTab = 'appearance' }: { defaultTab?: str
           <SecretsSection />
         </TabsContent>
       </Tabs>
+      
+      <KeyboardShortcutsDialog 
+        open={shortcutsDialogOpen} 
+        onOpenChange={setShortcutsDialogOpen} 
+      />
     </>
   );
 }

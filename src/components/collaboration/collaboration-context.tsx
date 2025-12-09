@@ -10,6 +10,12 @@ import {
   type PipelineChangeBroadcast,
   type PipelineChangePayload,
 } from '@/lib/supabase/realtime';
+import { 
+  PipelineMemberRole, 
+  PipelineMember, 
+  RolePermissions, 
+  getRolePermissions 
+} from '@/types/pipeline';
 
 interface CollaboratorCursor {
   x: number;
@@ -26,16 +32,24 @@ export interface Collaborator {
   cursor?: CollaboratorCursor;
   isOnline: boolean;
   joinedAt: string;
+  role?: PipelineMemberRole;
 }
 
 interface CollaborationContextType {
   collaborators: Collaborator[];
   currentUserId: string | null;
+  currentUserRole: PipelineMemberRole | null;
+  permissions: RolePermissions;
+  isOwner: boolean;
   isConnected: boolean;
   isShareCanvasEnabled: boolean;
+  pipelineMembers: PipelineMember[];
   updateCursorPosition: (x: number, y: number) => void;
   broadcastPipelineChange: (type: PipelineChangeBroadcast['type'], payload: PipelineChangePayload) => void;
   setShareCanvasEnabled: (enabled: boolean) => void;
+  refreshMembers: () => Promise<void>;
+  updateMemberRole: (memberId: string, role: PipelineMemberRole) => Promise<boolean>;
+  removeMember: (memberId: string) => Promise<boolean>;
 }
 
 const CollaborationContext = createContext<CollaborationContextType | null>(null);
@@ -59,6 +73,16 @@ interface CollaborationProviderProps {
   onShareCanvasEnabledChange?: (enabled: boolean) => void;
 }
 
+// Default permissions for non-authenticated users
+const defaultPermissions: RolePermissions = {
+  canEdit: false,
+  canInviteMembers: false,
+  canRemoveMembers: false,
+  canChangeSettings: false,
+  canAssignSupervisor: false,
+  canDeletePipeline: false,
+};
+
 export function CollaborationProvider({
   children,
   pipelineId,
@@ -72,14 +96,105 @@ export function CollaborationProvider({
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [shareCanvasEnabled, setShareCanvasEnabledState] = useState(isShareCanvasEnabled);
+  const [pipelineMembers, setPipelineMembers] = useState<PipelineMember[]>([]);
+  const [currentUserRole, setCurrentUserRole] = useState<PipelineMemberRole | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
+  const [permissions, setPermissions] = useState<RolePermissions>(defaultPermissions);
   const managerRef = useRef<PipelineRealtimeManager | null>(null);
   const lastCursorBroadcastRef = useRef(0);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pipelineMembersRef = useRef<PipelineMember[]>([]);
+  const hasFetchedMembersRef = useRef(false);
 
   // Handle Share Canvas enabled changes
   const setShareCanvasEnabled = useCallback((enabled: boolean) => {
     setShareCanvasEnabledState(enabled);
     onShareCanvasEnabledChange?.(enabled);
   }, [onShareCanvasEnabledChange]);
+
+  // Fetch pipeline members and determine user role
+  const fetchPipelineMembers = useCallback(async () => {
+    if (!pipelineId) return;
+    
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}/members`);
+      if (res.ok) {
+        const data = await res.json();
+        pipelineMembersRef.current = data.members || [];
+        setPipelineMembers(data.members || []);
+        setIsOwner(data.isOwner || false);
+        setCurrentUserRole(data.currentUserRole || null);
+        
+        // Calculate permissions based on role
+        const role = data.currentUserRole || 'member';
+        setPermissions(getRolePermissions(role, data.isOwner));
+      }
+    } catch (err) {
+      console.error('Failed to fetch pipeline members:', err);
+    }
+  }, [pipelineId]);
+
+  // Refresh members (exposed to context)
+  const refreshMembers = useCallback(async () => {
+    await fetchPipelineMembers();
+  }, [fetchPipelineMembers]);
+
+  // Update member role
+  const updateMemberRole = useCallback(async (memberId: string, role: PipelineMemberRole): Promise<boolean> => {
+    if (!pipelineId) return false;
+    
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}/members/${memberId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      });
+      
+      if (res.ok) {
+        await refreshMembers();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Failed to update member role:', err);
+      return false;
+    }
+  }, [pipelineId, refreshMembers]);
+
+  // Remove member
+  const removeMember = useCallback(async (memberId: string): Promise<boolean> => {
+    if (!pipelineId) return false;
+    
+    try {
+      const res = await fetch(`/api/pipelines/${pipelineId}/members/${memberId}`, {
+        method: 'DELETE',
+      });
+      
+      if (res.ok) {
+        await refreshMembers();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Failed to remove member:', err);
+      return false;
+    }
+  }, [pipelineId, refreshMembers]);
+
+  // Send heartbeat for presence tracking
+  const sendHeartbeat = useCallback(async () => {
+    if (!pipelineId || !userId) return;
+    
+    try {
+      await fetch(`/api/pipelines/${pipelineId}/presence`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'heartbeat' }),
+      });
+    } catch (err) {
+      // Silently fail heartbeats
+    }
+  }, [pipelineId, userId]);
 
   // Get pipeline store functions for syncing changes
   const { 
@@ -97,21 +212,27 @@ export function CollaborationProvider({
     edgesRef.current = edges;
   }, [nodes, edges]);
 
-  // Convert UserPresence to Collaborator
-  const userPresenceToCollaborator = useCallback((presence: UserPresence): Collaborator => ({
-    id: presence.id,
-    name: presence.name,
-    email: presence.email,
-    avatarUrl: presence.avatarUrl,
-    color: presence.color,
-    cursor: presence.cursor ? {
-      x: presence.cursor.x,
-      y: presence.cursor.y,
-      lastUpdate: Date.now(),
-    } : undefined,
-    isOnline: true,
-    joinedAt: presence.lastSeen,
-  }), []);
+  // Convert UserPresence to Collaborator - use ref to avoid dependency issues
+  const userPresenceToCollaborator = useCallback((presence: UserPresence): Collaborator => {
+    // Find member info if available - use ref to avoid triggering re-renders
+    const member = pipelineMembersRef.current.find(m => m.userId === presence.id || m.email === presence.email);
+    
+    return {
+      id: presence.id,
+      name: presence.name,
+      email: presence.email,
+      avatarUrl: presence.avatarUrl,
+      color: presence.color,
+      cursor: presence.cursor ? {
+        x: presence.cursor.x,
+        y: presence.cursor.y,
+        lastUpdate: Date.now(),
+      } : undefined,
+      isOnline: true,
+      joinedAt: presence.lastSeen,
+      role: member?.role,
+    };
+  }, []); // No dependencies - uses ref
 
   // Handle incoming pipeline changes from other users
   const handlePipelineChange = useCallback((change: PipelineChangeBroadcast) => {
@@ -210,6 +331,12 @@ export function CollaborationProvider({
       return;
     }
 
+    // Fetch pipeline members first (only once per pipeline)
+    if (!hasFetchedMembersRef.current) {
+      hasFetchedMembersRef.current = true;
+      fetchPipelineMembers();
+    }
+
     console.log('[Collaboration] Connecting to channel for pipeline:', pipelineId);
 
     // Create and configure the realtime manager
@@ -246,6 +373,7 @@ export function CollaborationProvider({
           }
           return [...prev, userPresenceToCollaborator(user)];
         });
+        // Note: Not refreshing members on every join to avoid excessive API calls
       },
 
       onUserLeave: (leftUserId) => {
@@ -266,6 +394,9 @@ export function CollaborationProvider({
         console.warn('[Collaboration] Failed to connect to collaboration channel');
       } else {
         console.log('[Collaboration] Successfully connected to channel');
+        // Start heartbeat for presence tracking
+        sendHeartbeat();
+        heartbeatIntervalRef.current = setInterval(sendHeartbeat, 30000); // Every 30 seconds
       }
     }).catch((err) => {
       console.error('[Collaboration] Connection error:', err);
@@ -279,8 +410,26 @@ export function CollaborationProvider({
       managerRef.current = null;
       setIsConnected(false);
       setCollaborators([]);
+      
+      // Clear heartbeat interval
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      
+      // Send disconnect presence update
+      if (userId) {
+        fetch(`/api/pipelines/${pipelineId}/presence`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'disconnect' }),
+        }).catch(() => {});
+      }
+      
+      // Reset fetch flag for next connection
+      hasFetchedMembersRef.current = false;
     };
-  }, [pipelineId, userId, userName, userEmail, userAvatar, userPresenceToCollaborator, handlePipelineChange]);
+  }, [pipelineId, userId, userName, userEmail, userAvatar]); // Minimal stable dependencies
 
   // Throttled cursor position update
   const updateCursorPosition = useCallback((x: number, y: number) => {
@@ -316,11 +465,18 @@ export function CollaborationProvider({
       value={{
         collaborators,
         currentUserId: userId || null,
+        currentUserRole,
+        permissions,
+        isOwner,
         isConnected,
         isShareCanvasEnabled: shareCanvasEnabled,
+        pipelineMembers,
         updateCursorPosition,
         broadcastPipelineChange,
         setShareCanvasEnabled,
+        refreshMembers,
+        updateMemberRole,
+        removeMember,
       }}
     >
       {children}
@@ -355,4 +511,22 @@ export function useSafeBroadcastChange() {
     return (() => {}) as (type: PipelineChangeBroadcast['type'], payload: PipelineChangePayload) => void;
   }
   return context.broadcastPipelineChange;
+}
+
+// Hook to get current user's permissions
+export function usePermissions() {
+  const { permissions, isOwner, currentUserRole } = useCollaboration();
+  return { permissions, isOwner, currentUserRole };
+}
+
+// Hook to get pipeline members
+export function usePipelineMembers() {
+  const { pipelineMembers, refreshMembers, updateMemberRole, removeMember } = useCollaboration();
+  return { pipelineMembers, refreshMembers, updateMemberRole, removeMember };
+}
+
+// Hook to check if current user can perform an action
+export function useCanPerformAction(action: keyof RolePermissions) {
+  const { permissions } = useCollaboration();
+  return permissions[action];
 }

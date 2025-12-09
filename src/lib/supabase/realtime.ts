@@ -245,8 +245,14 @@ export class PipelineRealtimeManager {
   // Disconnect from the channel
   async disconnect() {
     if (this.channel) {
-      await this.channel.untrack();
-      await this.supabase.removeChannel(this.channel);
+      try {
+        await this.channel.untrack();
+        if (this.supabase) {
+          await this.supabase.removeChannel(this.channel);
+        }
+      } catch (err) {
+        console.warn('[Realtime] Error during disconnect:', err);
+      }
       this.channel = null;
     }
   }

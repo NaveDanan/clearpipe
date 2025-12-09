@@ -2,6 +2,7 @@
 
 import { AvatarStack } from '@/components/kibo-ui/avatar-stack';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { useOnlineCollaborators, useCollaboration, type Collaborator } from './collaboration-context';
 import {
   Tooltip,
@@ -10,7 +11,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { Wifi, WifiOff } from 'lucide-react';
+import { Wifi, WifiOff, Crown, Shield } from 'lucide-react';
 
 interface CollaboratorAvatarsProps {
   className?: string;
@@ -30,6 +31,16 @@ function getInitials(name: string, email: string): string {
     return email.substring(0, 2).toUpperCase();
   }
   return 'U';
+}
+
+function getRoleBadge(role?: string) {
+  if (role === 'manager') {
+    return { icon: Crown, label: 'Pipeline Manager', color: 'text-amber-500' };
+  }
+  if (role === 'supervisor') {
+    return { icon: Shield, label: 'Supervisor', color: 'text-blue-500' };
+  }
+  return null;
 }
 
 export function CollaboratorAvatars({ 
@@ -108,11 +119,25 @@ export function CollaboratorAvatars({
                   </Avatar>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="flex flex-col gap-0.5">
-                  <span className="font-medium">
+                  <span className="font-medium flex items-center gap-1">
                     {collaborator.name}
                     {collaborator.id === currentUserId && ' (You)'}
+                    {getRoleBadge(collaborator.role) && (
+                      <span className={cn('ml-1', getRoleBadge(collaborator.role)!.color)}>
+                        {(() => {
+                          const RoleIcon = getRoleBadge(collaborator.role)!.icon;
+                          return <RoleIcon className="w-3 h-3" />;
+                        })()}
+                      </span>
+                    )}
                   </span>
                   <span className="text-xs text-muted-foreground">{collaborator.email}</span>
+                  {collaborator.role && (
+                    <span className="text-xs text-muted-foreground">
+                      {collaborator.role === 'manager' ? 'Pipeline Manager' : 
+                       collaborator.role === 'supervisor' ? 'Supervisor' : 'Member'}
+                    </span>
+                  )}
                   <span className="text-xs flex items-center gap-1">
                     <span 
                       className="w-2 h-2 rounded-full bg-green-500 animate-pulse"
