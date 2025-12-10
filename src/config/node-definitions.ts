@@ -43,9 +43,12 @@ export const nodeTypeDefinitions: NodeTypeDefinition[] = [
     icon: 'Cpu',
     category: 'training',
     defaultConfig: {
+      scriptSource: 'local',
+      executionMode: 'local',
       framework: 'pytorch',
       cloudProvider: 'local',
       instanceType: 'local',
+      parameterValues: {},
     },
   },
   {
@@ -124,6 +127,65 @@ export const frameworkOptions = [
   { value: 'lightgbm', label: 'LightGBM' },
   { value: 'custom', label: 'Custom' },
 ];
+
+export const gitProviderOptions = [
+  { value: 'github', label: 'GitHub' },
+  { value: 'gitlab', label: 'GitLab' },
+  { value: 'dagshub', label: 'DagsHub' },
+  { value: 'azure-devops', label: 'Azure DevOps' },
+  { value: 'bitbucket', label: 'Bitbucket' },
+  { value: 'custom', label: 'Custom Git URL' },
+];
+
+export const trainingScriptSourceOptions = [
+  { value: 'local', label: 'Local File' },
+  { value: 'git', label: 'Git Repository' },
+];
+
+export const executionModeOptions = [
+  { value: 'local', label: 'Local Machine' },
+  { value: 'cloud', label: 'Cloud Provider' },
+];
+
+export const venvModeOptions = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'requirements', label: 'requirements.txt' },
+  { value: 'conda', label: 'Conda environment.yml' },
+  { value: 'poetry', label: 'Poetry (pyproject.toml)' },
+  { value: 'none', label: 'System Python' },
+];
+
+export const instanceTypeOptions = {
+  local: [
+    { value: 'local', label: 'Local Machine' },
+  ],
+  gcp: [
+    { value: 'n1-standard-4', label: 'n1-standard-4 (4 vCPU, 15GB)' },
+    { value: 'n1-standard-8', label: 'n1-standard-8 (8 vCPU, 30GB)' },
+    { value: 'n1-highmem-4', label: 'n1-highmem-4 (4 vCPU, 26GB)' },
+    { value: 'a2-highgpu-1g', label: 'a2-highgpu-1g (1x A100 GPU)' },
+    { value: 'a2-highgpu-2g', label: 'a2-highgpu-2g (2x A100 GPU)' },
+    { value: 'n1-standard-4-t4', label: 'n1-standard-4 + T4 GPU' },
+    { value: 'n1-standard-8-v100', label: 'n1-standard-8 + V100 GPU' },
+  ],
+  aws: [
+    { value: 'm5.xlarge', label: 'm5.xlarge (4 vCPU, 16GB)' },
+    { value: 'm5.2xlarge', label: 'm5.2xlarge (8 vCPU, 32GB)' },
+    { value: 'p3.2xlarge', label: 'p3.2xlarge (1x V100 GPU)' },
+    { value: 'p3.8xlarge', label: 'p3.8xlarge (4x V100 GPU)' },
+    { value: 'p4d.24xlarge', label: 'p4d.24xlarge (8x A100 GPU)' },
+    { value: 'g4dn.xlarge', label: 'g4dn.xlarge (1x T4 GPU)' },
+    { value: 'g5.xlarge', label: 'g5.xlarge (1x A10G GPU)' },
+  ],
+  azure: [
+    { value: 'Standard_D4s_v3', label: 'Standard_D4s_v3 (4 vCPU, 16GB)' },
+    { value: 'Standard_D8s_v3', label: 'Standard_D8s_v3 (8 vCPU, 32GB)' },
+    { value: 'Standard_NC6s_v3', label: 'Standard_NC6s_v3 (1x V100 GPU)' },
+    { value: 'Standard_NC12s_v3', label: 'Standard_NC12s_v3 (2x V100 GPU)' },
+    { value: 'Standard_ND40rs_v2', label: 'Standard_ND40rs_v2 (8x V100 GPU)' },
+    { value: 'Standard_NC4as_T4_v3', label: 'Standard_NC4as_T4_v3 (1x T4 GPU)' },
+  ],
+};
 
 export const dataFormatOptions = [
   // Tabular Formats

@@ -160,12 +160,16 @@ const getDefaultNodeData = (type: PipelineNodeData['type']): PipelineNodeData =>
         label: 'Model Training',
         description: 'Train ML models on cloud or local',
         config: {
+          scriptSource: 'local',
+          executionMode: 'local',
           framework: 'pytorch',
           cloudProvider: 'local',
           instanceType: 'local',
           instanceConfig: {},
-          credentials: {},
-          hyperparameters: {},
+          parameterValues: {},
+          venvConfig: {
+            mode: 'auto',
+          },
         } as any,
       };
     case 'experiment':

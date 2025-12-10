@@ -12,6 +12,26 @@ export type ExperimentTracker = 'clearml' | 'mlflow' | 'wandb' | 'comet' | 'none
 // ML Frameworks
 export type MLFramework = 'pytorch' | 'tensorflow' | 'sklearn' | 'xgboost' | 'lightgbm' | 'custom';
 
+// Git providers for training scripts
+export type GitProvider = 'github' | 'gitlab' | 'dagshub' | 'azure-devops' | 'bitbucket' | 'custom';
+
+// Training script source type
+export type TrainingScriptSource = 'local' | 'git';
+
+// Detected parameter definition from script parsing
+export interface DetectedParam {
+  name: string;
+  type: 'int' | 'float' | 'str' | 'bool' | 'list' | 'unknown';
+  default?: string | number | boolean | null;
+  help?: string;
+  choices?: (string | number)[];
+  required?: boolean;
+  source: 'argparse' | 'hyperparameter' | 'env' | 'config';
+  // Range values for hyperparameters (like YOLOv7 meta format)
+  min?: number;
+  max?: number;
+}
+
 // Terminal output log entry
 export interface TerminalLogEntry {
   timestamp: string;
@@ -207,17 +227,99 @@ export interface TrainingNodeData extends BaseNodeData {
   config: TrainingConfig;
 }
 
+// Git repository configuration for training scripts
+export interface GitRepoConfig {
+  provider: GitProvider;
+  repoUrl: string;
+  branch?: string;
+  commitId?: string;
+  entryScript: string; // Path to main training script within repo (e.g., 'train.py' or 'src/train.py')
+  // Authentication
+  authType?: 'none' | 'token' | 'ssh' | 'oauth';
+  connectionId?: string; // Reference to saved git credentials in connections
+}
+
+// Cloud autoscaler configuration
+export interface AutoscalerConfig {
+  enabled: boolean;
+  minNodes: number;
+  maxNodes: number;
+  targetGpuUtilization?: number; // 0-100, scale up when above this
+  scaleDownDelay?: number; // Seconds to wait before scaling down
+  spotInstances?: boolean; // Use spot/preemptible instances for cost savings
+  timeout?: number; // Max training time in seconds before auto-termination
+}
+
+// Virtual environment configuration
+export interface TrainingVenvConfig {
+  mode: 'auto' | 'requirements' | 'conda' | 'poetry' | 'none';
+  requirementsPath?: string; // Path to requirements.txt (relative to repo root)
+  condaEnvPath?: string; // Path to environment.yml
+  pythonVersion?: string; // e.g., '3.10', '3.11'
+  additionalPackages?: string[]; // Extra pip packages to install
+}
+
 export interface TrainingConfig {
   [key: string]: unknown;
+  
+  // Script source configuration
+  scriptSource: TrainingScriptSource;
+  localScriptPath?: string; // When scriptSource is 'local'
+  gitConfig?: GitRepoConfig; // When scriptSource is 'git'
+  
+  // Execution mode
+  executionMode: 'local' | 'cloud';
+  connectionId?: string; // Reference to saved cloud connection
+  
+  // ML Framework (used for parameter detection heuristics)
   framework: MLFramework;
+  
+  // Cloud provider settings (when executionMode is 'cloud')
   cloudProvider: CloudProvider;
   instanceType: string;
   instanceConfig: {
     gpu?: string;
+    gpuCount?: number;
     memory?: string;
     cpuCores?: number;
+    diskSize?: string;
   };
-  credentials: {
+  
+  // Autoscaler configuration (cloud only)
+  autoscaler?: AutoscalerConfig;
+  
+  // Virtual environment configuration
+  venvConfig?: TrainingVenvConfig;
+  
+  // Auto-detected parameters from script parsing
+  detectedParams?: DetectedParam[];
+  
+  // User-configured parameter values (overrides detected defaults)
+  parameterValues: Record<string, string | number | boolean>;
+  
+  // Common training parameters (fallback when not auto-detected)
+  epochs?: number;
+  batchSize?: number;
+  learningRate?: number;
+  
+  // Data source mappings (similar to Execute node)
+  dataSourceMappings?: DataSourceVariableMapping[];
+  
+  // Output configuration
+  outputPath?: string;
+  modelOutputPath?: string;
+  checkpointPath?: string;
+  
+  // Experiment tracking integration
+  experimentTracker?: ExperimentTracker;
+  experimentConfig?: {
+    projectName?: string;
+    experimentName?: string;
+    tags?: string[];
+  };
+  
+  // Legacy credentials (for backward compatibility - prefer connectionId)
+  credentials?: {
     // GCP
     gcpProjectId?: string;
     gcpServiceAccountKey?: string;
@@ -231,11 +333,17 @@ export interface TrainingConfig {
     azureClientId?: string;
     azureClientSecret?: string;
   };
-  trainingScript?: string;
-  hyperparameters: Record<string, unknown>;
-  epochs?: number;
-  batchSize?: number;
-  learningRate?: number;
+  
+  // Job status tracking
+  jobId?: string;
+  jobStatus?: 'pending' | 'cloning' | 'setup' | 'training' | 'completed' | 'failed' | 'cancelled';
+  jobProgress?: {
+    currentEpoch?: number;
+    totalEpochs?: number;
+    currentStep?: number;
+    totalSteps?: number;
+    metrics?: Record<string, number>;
+  };
 }
 
 // Experiment tracking node configuration
